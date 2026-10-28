@@ -324,7 +324,7 @@ export function EffectsPanel({
       <div className="effect-preset-list">
         {presets.map((preset) => {
           const unavailableCount = preset.effects.filter((effect) => !isNativeEffectType(effect.type)).length;
-          return <article className="effect-preset-card" key={preset.id}>
+          return <article className="effect-preset-card" data-testid={`effect-preset-${preset.id}`} key={preset.id}>
             <div className="effect-preset-summary">
               {renamingId === preset.id
                 ? <input aria-label={`Rename ${preset.name}`} autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => {
@@ -337,8 +337,8 @@ export function EffectsPanel({
               ? <div className="effect-preset-actions"><button className="icon-button compact" title="Save name" disabled={busy} onClick={() => void renamePreset(preset)}><Check size={12} /></button><button className="icon-button compact" title="Cancel rename" onClick={() => setRenamingId(null)}><X size={12} /></button></div>
               : <>
                 <div className="effect-preset-actions">
-                  <button className="button button-subtle" title="Replace this chain with the preset's available effects" disabled={busy} onClick={() => applyPreset(preset, false)}>Load</button>
-                  <button className="button button-subtle" title="Append the available effects to this chain" disabled={busy} onClick={() => applyPreset(preset, true)}>Append</button>
+                  <button className="button button-subtle" data-testid={`button-effect-preset-load-${preset.id}`} aria-label={`Replace chain with ${preset.name}`} title="Replace this chain with the preset's available effects" disabled={busy} onClick={() => applyPreset(preset, false)}>Load</button>
+                  <button className="button button-subtle" data-testid={`button-effect-preset-append-${preset.id}`} aria-label={`Append ${preset.name}`} title="Append the available effects to this chain" disabled={busy} onClick={() => applyPreset(preset, true)}>Append</button>
                   <button className="icon-button compact" title="Rename preset" disabled={busy} onClick={() => { setRenamingId(preset.id); setRenameValue(preset.name); }}><Pencil size={12} /></button>
                   <button className="icon-button compact" title="Duplicate preset" disabled={busy} onClick={() => void duplicatePreset(preset)}><Copy size={12} /></button>
                   <button className="icon-button compact" title="Export preset JSON" disabled={busy} onClick={() => void exportPreset(preset)}><Download size={12} /></button>
