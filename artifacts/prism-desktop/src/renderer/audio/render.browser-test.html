@@ -366,13 +366,14 @@
             { id: "snare-ui", name: "Snare", note: 38, sampleAssetId: "sample-ui-2", gain: 1 },
           ] };
           let drumNotes = [];
+          let drumTimeSignature = "4/4";
           let hits = 0;
           let previews = 0;
           const drumRoot = createRoot(container);
           activeRoot = drumRoot;
           const renderDrums = () => drumRoot.render(createElement(DrumPanel, {
             drumKit, notes: drumNotes, assets, assetsLoading: false, missingSampleIds: [], recoveryMessage: "",
-            tempo: 120, timeSignature: "4/4",
+            tempo: 120, timeSignature: drumTimeSignature,
             onChange: (next) => { drumKit = next; renderDrums(); },
             onNotesChange: (next) => { drumNotes = next; renderDrums(); },
             onImportSample: () => {},
@@ -405,6 +406,19 @@
           await click('[data-testid="button-drum-pad-add-hit-kick-ui"]');
           assert.equal(previews, 1);
           assert.equal(hits, 1);
+          drumTimeSignature = "6/8";
+          drumKit = { ...drumKit, patternStartBeat: 0, patternLengthBars: 1 };
+          drumNotes = [];
+          renderDrums();
+          await wait(30);
+          assert(container.querySelector('[data-testid="text-drum-tempo"]').textContent.includes("12 steps"),
+            "A 6/8 drum bar did not use twelve sixteenth-note steps.");
+          await click('[data-testid="button-drum-step-kick-ui-2"]');
+          assert.equal(drumNotes[0].startBeat, 0.5, "A 6/8 step did not use the session's eighth-note beat basis.");
+          await click('[data-testid="button-drum-pattern-duplicate"]');
+          assert.equal(drumNotes[1].startBeat, 6.5, "Duplicating a 6/8 pattern used the wrong bar length.");
+          await setValue('[data-testid="input-drum-pattern-start-bar"]', 3);
+          assert.equal(drumKit.patternStartBeat, 12, "A 6/8 pattern start did not align with bar three.");
         } finally {
           activeRoot?.unmount();
           container.remove();

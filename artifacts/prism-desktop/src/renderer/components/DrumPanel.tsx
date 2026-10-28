@@ -2,6 +2,7 @@ import type { ChangeEvent } from "react";
 import { useState } from "react";
 import { AudioWaveform, Drum, FileAudio2, FolderOpen, Plus, Play, Trash2 } from "lucide-react";
 import type { DrumKitState, DrumPadState, MidiNote, ProjectAsset } from "@shared/types";
+import { parseTimeSignature } from "../audio/time";
 import "./DrumPanel.css";
 
 type DrumPanelProps = {
@@ -32,11 +33,10 @@ export function DrumPanel({
   const [patternError, setPatternError] = useState("");
   const patternLengthBars = drumKit.patternLengthBars ?? 1;
   const patternStartBeat = drumKit.patternStartBeat ?? 0;
-  const timeParts = timeSignature.split("/").map(Number);
-  const beatsPerBar = Number.isFinite(timeParts[0]) && Number.isFinite(timeParts[1]) && timeParts[0] > 0 && timeParts[1] > 0
-    ? timeParts[0] * 4 / timeParts[1]
-    : 4;
-  const stepsPerBar = Math.max(1, Math.round(beatsPerBar * 4));
+  const { numerator, denominator } = parseTimeSignature(timeSignature);
+  // Session MIDI beats follow the meter denominator, not quarter-note units.
+  const beatsPerBar = numerator;
+  const stepsPerBar = Math.max(1, Math.round(numerator * 16 / denominator));
   const stepBeats = beatsPerBar / stepsPerBar;
   const totalSteps = stepsPerBar * patternLengthBars;
   const patternEndBeat = patternStartBeat + beatsPerBar * patternLengthBars;
