@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { createServer } from "vite";
 
 const chromium = process.env.CHROMIUM_PATH || "chromium";
@@ -37,6 +37,12 @@ const receiveResult = (request, response) => {
 const server = await createServer({
   configFile: false,
   root: process.cwd(),
+  resolve: {
+    alias: {
+      "@": resolve(process.cwd(), "src/renderer"),
+      "@shared": resolve(process.cwd(), "src/shared"),
+    },
+  },
   server: { host: "127.0.0.1", port: 0, strictPort: false },
   logLevel: "error",
   plugins: [{

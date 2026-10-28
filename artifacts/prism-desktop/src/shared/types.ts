@@ -61,6 +61,40 @@ export type EffectState = {
   parameters: Record<string, number>;
 };
 
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export type EffectPresetEffect = {
+  id: string;
+  type: string;
+  enabled: boolean;
+  parameters: Record<string, number>;
+  raw: { [key: string]: JsonValue };
+};
+
+export type EffectChainPreset = {
+  id: string;
+  name: string;
+  version: 1;
+  scope: "global" | "project";
+  projectId: string | null;
+  effects: EffectPresetEffect[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EffectChainPresetFile = {
+  format: "prism-effect-chain";
+  version: 1;
+  name: string;
+  effects: EffectPresetEffect[];
+};
+
 export type LoopRange = {
   enabled: boolean;
   startSeconds: number;
@@ -156,6 +190,11 @@ export type AppBridge = {
   deleteSong(sessionId: string): Promise<void>;
   reorderSongs(releaseId: string, songIds: string[]): Promise<Release>;
   saveSession(session: SongSession): Promise<SongSession>;
+  listEffectPresets(projectId: string): Promise<EffectChainPreset[]>;
+  saveEffectPreset(preset: Omit<EffectChainPreset, "createdAt" | "updatedAt">): Promise<EffectChainPreset>;
+  deleteEffectPreset(presetId: string, projectId: string): Promise<void>;
+  importEffectPreset(): Promise<EffectChainPresetFile | null>;
+  exportEffectPreset(preset: EffectChainPresetFile): Promise<boolean>;
   chooseArtwork(releaseId: string): Promise<Release | null>;
   selectArtwork(): Promise<ProjectAsset | null>;
   importAudio(
