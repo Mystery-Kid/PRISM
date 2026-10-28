@@ -38,6 +38,7 @@ import {
   visibleEffectPresets,
 } from "../shared/effect-presets";
 import { normalizeEffectChain } from "../shared/effect-definitions";
+import { validateInstrumentTrackState } from "../shared/instrument-tracks";
 import { validateAudioRouting } from "../shared/audio-routing";
 import type {
   AudioClip,
@@ -70,7 +71,7 @@ protocol.registerSchemesAsPrivileged([
 
 type StoredAsset = ProjectAsset & { storageName: string };
 type ProjectLibrary = {
-  version: 4;
+  version: 5;
   releases: Release[];
   sessions: SongSession[];
   assets: StoredAsset[];
@@ -99,7 +100,7 @@ let closeApproved = false;
 const activeRecordings = new Map<string, ActiveRecording>();
 
 function emptyLibrary(): ProjectLibrary {
-  return { version: 4, releases: [], sessions: [], assets: [], effectPresets: [] };
+  return { version: 5, releases: [], sessions: [], assets: [], effectPresets: [] };
 }
 
 async function persistLibrary(): Promise<void> {
@@ -122,7 +123,7 @@ async function readLibrary(): Promise<ProjectLibrary> {
       typeof parsed !== "object" ||
       parsed === null ||
       !("version" in parsed) ||
-      ![1, 2, 3, 4].includes(Number(parsed.version)) ||
+      ![1, 2, 3, 4, 5].includes(Number(parsed.version)) ||
       !("releases" in parsed) ||
       !Array.isArray(parsed.releases) ||
       !("sessions" in parsed) ||
@@ -136,7 +137,7 @@ async function readLibrary(): Promise<ProjectLibrary> {
       throw new Error("The PRISM effect-preset library is damaged; the project file was not changed.");
     }
     const normalized: ProjectLibrary = {
-      version: 4,
+      version: 5,
       releases: parsed.releases as Release[],
       sessions: parsed.sessions.map(migrateSongSession),
       assets: parsed.assets as StoredAsset[],
@@ -144,7 +145,7 @@ async function readLibrary(): Promise<ProjectLibrary> {
         ? parsed.effectPresets.map(normalizeStoredEffectPreset)
         : [],
     };
-    if (parsed.version !== 4) {
+    if (parsed.version !== 5) {
       library = normalized;
       await persistLibrary();
     }
@@ -193,6 +194,9 @@ function freshTrack(name = "Audio 1", type: Track["type"] = "audio"): Track {
     instrument: type === "instrument"
       ? { waveform: "sawtooth", attack: 0.01, decay: 0.12, sustain: 0.65, release: 0.18 }
       : null,
+    sampler: null,
+    drumKit: null,
+    instrumentRecovery: null,
     effects: [],
     outputBusId: null,
     sends: [],
@@ -675,8 +679,9 @@ function registerIpcHandlers(): void {
         updated.loopRange.endSeconds <= updated.loopRange.startSeconds)
     ) throw new Error("The loop range is invalid.");
     for (const track of tracksWithValidatedEffects) {
+      const instrumentValidation = validateInstrumentTrackState(track);
+      if (instrumentValidation) throw new Error(instrumentValidation);
       if (
-        !["audio", "instrument"].includes(track.type) ||
         !Array.isArray(track.effects) ||
         !Array.isArray(track.clips) ||
         track.clips.length > 10_000 ||
@@ -684,7 +689,6 @@ function registerIpcHandlers(): void {
         track.notes.length > 100_000 ||
         !Number.isFinite(track.volume) ||
         !Number.isFinite(track.pan) ||
-        (track.type === "instrument" && !track.instrument) ||
         track.clips.some(
           (clip: AudioClip) =>
             !getLibrary().assets.some((asset) => asset.id === clip.assetId) ||
@@ -889,6 +893,57 @@ function registerIpcHandlers(): void {
     session.updatedAt = new Date().toISOString();
     await persistLibrary();
     return { clip, assetUrl: `prism-media://local/${id}` };
+  });
+  handle("prism:audio:assets:list", async () =>
+    getLibrary().assets
+      .filter((asset) => asset.mimeType.startsWith("audio/"))
+      .map(({ id, fileName, mimeType }) => ({ id, fileName, mimeType } satisfies ProjectAsset)),
+  );
+  handle("prism:audio:sample:import", async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: "Import sampler audio",
+      properties: ["openFile"],
+      filters: [{ name: "Audio", extensions: ["wav", "mp3", "ogg", "m4a", "flac"] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    const sourcePath = result.filePaths[0];
+    const extension = extname(sourcePath).toLowerCase();
+    if (![".wav", ".mp3", ".ogg", ".m4a", ".flac"].includes(extension)) {
+      throw new Error("Choose a WAV, MP3, OGG, M4A, or FLAC sample.");
+    }
+    const info = await stat(sourcePath);
+    if (info.size <= 0 || info.size > 500 * 1024 * 1024) {
+      throw new Error("Audio samples must be non-empty and smaller than 500 MB.");
+    }
+    const id = randomUUID();
+    const storageName = `${id}${extension}`;
+    const assetPath = join(assetDirectory, storageName);
+    await copyFile(sourcePath, assetPath);
+    const asset: StoredAsset = {
+      id,
+      storageName,
+      fileName: sourcePath.split(/[\\/]/).pop() ?? "audio sample",
+      mimeType:
+        extension === ".wav"
+          ? "audio/wav"
+          : extension === ".ogg"
+            ? "audio/ogg"
+            : extension === ".m4a"
+              ? "audio/mp4"
+              : extension === ".flac"
+                ? "audio/flac"
+                : "audio/mpeg",
+    };
+    const previousAssets = getLibrary().assets;
+    getLibrary().assets = [...previousAssets, asset];
+    try {
+      await persistLibrary();
+    } catch (error) {
+      getLibrary().assets = previousAssets;
+      await unlink(assetPath).catch(() => undefined);
+      throw error;
+    }
+    return { id: asset.id, fileName: asset.fileName, mimeType: asset.mimeType } satisfies ProjectAsset;
   });
   handle("prism:audio:recording:start", async (_event, input: RecordingStart) => {
     if (

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AudioClip } from "@shared/types";
-import { getClipWindow } from "./timeline";
+import type { AudioClip, SongSession, Track } from "@shared/types";
+import { getClipWindow, getSessionDuration } from "./timeline";
 
 const clip: AudioClip = {
   id: "clip",
@@ -35,4 +35,45 @@ test("clip source range cannot extend past the imported audio", () => {
     duration: 1,
   });
   assert.equal(getClipWindow(shortSource, 11, 15), null);
+});
+
+test("sampler and drum MIDI patterns contribute to arrangement length", () => {
+  const makeMidiTrack = (id: string, type: "sampler" | "drum", startBeat: number): Track => ({
+    id,
+    name: id,
+    type,
+    color: "#b47c52",
+    volume: 1,
+    pan: 0,
+    muted: false,
+    solo: false,
+    recordArmed: false,
+    clips: [],
+    notes: [{ id: `${id}-note`, pitch: type === "drum" ? 36 : 60, startBeat, durationBeats: 0.5, velocity: 100 }],
+    instrument: null,
+    sampler: type === "sampler" ? { sampleAssetId: "sample-a", rootNote: 60, gain: 1 } : null,
+    drumKit: type === "drum" ? {
+      pads: [{ id: `${id}-pad`, name: "Kick", note: 36, sampleAssetId: "sample-b", gain: 1 }],
+    } : null,
+    instrumentRecovery: null,
+    effects: [],
+    outputBusId: null,
+    sends: [],
+  });
+  const session: SongSession = {
+    id: "session",
+    releaseId: "release",
+    title: "Sampled arrangement",
+    tempo: 120,
+    timeSignature: "4/4",
+    loopRange: null,
+    metronomeEnabled: false,
+    masterVolume: 1,
+    masterEffects: [],
+    buses: [],
+    tracks: [makeMidiTrack("sampler", "sampler", 2), makeMidiTrack("drums", "drum", 4)],
+    updatedAt: new Date(0).toISOString(),
+  };
+
+  assert.equal(getSessionDuration(session), 2.25);
 });

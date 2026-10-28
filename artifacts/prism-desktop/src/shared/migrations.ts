@@ -2,14 +2,24 @@ import type {
   AudioClip,
   AudioBus,
   BusSend,
+  DrumKitState,
   EffectState,
+  InstrumentRecoveryState,
   InstrumentState,
+  JsonValue,
   MidiNote,
+  SamplerState,
   SongSession,
   Track,
 } from "./types";
 import { validateAudioRouting } from "./audio-routing";
 import { normalizeEffectState } from "./effect-definitions";
+import {
+  createDefaultDrumKit,
+  createDefaultSamplerState,
+  isDrumKitState,
+  isSamplerState,
+} from "./instrument-tracks";
 
 const waveforms = new Set(["sine", "square", "sawtooth", "triangle"]);
 const trackColors = ["#f47b54", "#72c4be", "#b295e8", "#e4b85e", "#7c9ef2"];
@@ -124,9 +134,101 @@ function migrateInstrument(value: unknown): InstrumentState {
   };
 }
 
+function serializeRecoveryState(value: unknown): JsonValue | null {
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? null : JSON.parse(serialized) as JsonValue;
+  } catch {
+    return null;
+  }
+}
+
+function migrateRecovery(value: unknown): InstrumentRecoveryState | null {
+  const recovery = record(value);
+  if (
+    typeof recovery.originalType !== "string" ||
+    typeof recovery.message !== "string" ||
+    !recovery.message.trim()
+  ) return null;
+  return {
+    originalType: recovery.originalType,
+    rawState: serializeRecoveryState(recovery.rawState),
+    message: recovery.message.slice(0, 500),
+  };
+}
+
+function unsupportedTrackData(track: Record<string, unknown>): JsonValue | null {
+  const {
+    id: _id,
+    name: _name,
+    color: _color,
+    volume: _volume,
+    pan: _pan,
+    muted: _muted,
+    solo: _solo,
+    recordArmed: _recordArmed,
+    clips: _clips,
+    notes: _notes,
+    effects: _effects,
+    outputBusId: _outputBusId,
+    sends: _sends,
+    ...instrumentData
+  } = track;
+  return serializeRecoveryState(instrumentData);
+}
+
+function instrumentStateIsSupported(value: unknown): boolean {
+  const instrument = record(value);
+  return waveforms.has(String(instrument.waveform)) &&
+    ["attack", "decay", "sustain", "release"].every((key) =>
+      instrument[key] === undefined ||
+      (typeof instrument[key] === "number" && Number.isFinite(instrument[key])),
+    );
+}
+
+function migrateSampler(value: unknown): SamplerState {
+  const sampler = record(value);
+  return {
+    sampleAssetId: typeof sampler.sampleAssetId === "string" && sampler.sampleAssetId.trim()
+      ? sampler.sampleAssetId
+      : null,
+    rootNote: Math.max(0, Math.min(127, Math.round(finite(sampler.rootNote, 60)))),
+    gain: Math.min(1.5, Math.max(0, finite(sampler.gain, 1))),
+  };
+}
+
+function migrateDrumKit(value: unknown): DrumKitState {
+  const kit = record(value);
+  if (!Array.isArray(kit.pads)) return createDefaultDrumKit();
+  return {
+    patternLengthBars: Math.max(1, Math.min(8, Math.round(finite(kit.patternLengthBars, 1)))),
+    patternStartBeat: Math.max(0, Math.min(100_000, finite(kit.patternStartBeat, 0))),
+    pads: kit.pads.slice(0, 16).map((item, index) => {
+      const pad = record(item);
+      return {
+        id: typeof pad.id === "string" && pad.id.trim() ? pad.id : crypto.randomUUID(),
+        name: typeof pad.name === "string" && pad.name.trim()
+          ? pad.name.trim().slice(0, 64)
+          : `Pad ${index + 1}`,
+        note: Math.max(0, Math.min(127, Math.round(finite(pad.note, 36 + index)))),
+        sampleAssetId: typeof pad.sampleAssetId === "string" && pad.sampleAssetId.trim()
+          ? pad.sampleAssetId
+          : null,
+        gain: Math.min(1.5, Math.max(0, finite(pad.gain, 1))),
+      };
+    }),
+  };
+}
+
 function migrateTrack(value: unknown, index: number): Track {
   const track = record(value);
-  const type = track.type === "instrument" ? "instrument" : "audio";
+  const requestedType = typeof track.type === "string" ? track.type : null;
+  const knownTypes = new Set(["audio", "instrument", "sampler", "drum", "unsupported"]);
+  const type = requestedType === null
+    ? "audio"
+    : knownTypes.has(requestedType)
+      ? requestedType as Track["type"]
+      : "unsupported";
   const clips = Array.isArray(track.clips)
     ? track.clips.map(migrateClip).filter((clip): clip is AudioClip => clip !== null)
     : [];
@@ -134,6 +236,43 @@ function migrateTrack(value: unknown, index: number): Track {
     ? track.notes.map(migrateNote).filter((note): note is MidiNote => note !== null)
     : [];
   const colorIndex = index % trackColors.length;
+  const savedRecovery = migrateRecovery(track.instrumentRecovery);
+  let instrumentRecovery = savedRecovery;
+  if (!instrumentRecovery && type === "unsupported") {
+    instrumentRecovery = {
+      originalType: requestedType ?? "unknown",
+      rawState: unsupportedTrackData(track),
+      message: `The saved "${requestedType ?? "unknown"}" instrument type is not supported. Its MIDI notes and source media were kept; recover it as a built-in instrument or assign it a sample.`,
+    };
+  } else if (!instrumentRecovery && type === "instrument" && !instrumentStateIsSupported(track.instrument)) {
+    instrumentRecovery = {
+      originalType: type,
+      rawState: serializeRecoveryState(track.instrument),
+      message: "Some saved synth settings are unsupported. MIDI notes were kept and safe synth defaults were restored.",
+    };
+  } else if (!instrumentRecovery && type === "sampler" && !isSamplerState(track.sampler)) {
+    instrumentRecovery = {
+      originalType: type,
+      rawState: serializeRecoveryState(track.sampler),
+      message: "Some saved sampler settings are unsupported. MIDI notes were kept; assign a supported audio sample to recover playback.",
+    };
+  } else if (!instrumentRecovery && type === "drum" && !isDrumKitState(track.drumKit)) {
+    instrumentRecovery = {
+      originalType: type,
+      rawState: serializeRecoveryState(track.drumKit),
+      message: "Some saved drum-pad settings are unsupported. MIDI notes were kept and default pads were restored for reassignment.",
+    };
+  }
+  let sampler: SamplerState | null = null;
+  let drumKit: DrumKitState | null = null;
+  if (type === "sampler") {
+    const migratedSampler = migrateSampler(track.sampler);
+    sampler = isSamplerState(migratedSampler) ? migratedSampler : createDefaultSamplerState();
+  } else if (type === "drum") {
+    const migratedKit = migrateDrumKit(track.drumKit);
+    drumKit = isDrumKitState(migratedKit) ? migratedKit : createDefaultDrumKit();
+    if (instrumentRecovery && !isDrumKitState(migratedKit)) drumKit = createDefaultDrumKit();
+  }
   return {
     id: typeof track.id === "string" ? track.id : crypto.randomUUID(),
     name: typeof track.name === "string" && track.name.trim() ? track.name : `Track ${index + 1}`,
@@ -147,6 +286,9 @@ function migrateTrack(value: unknown, index: number): Track {
     clips,
     notes,
     instrument: type === "instrument" ? migrateInstrument(track.instrument) : null,
+    sampler,
+    drumKit,
+    instrumentRecovery,
     effects: migrateEffects(track.effects),
     outputBusId: typeof track.outputBusId === "string" && track.outputBusId.trim()
       ? track.outputBusId

@@ -48,6 +48,8 @@ const bridge: AppBridge = {
   selectArtwork: () => ipcRenderer.invoke("prism:artwork:select"),
   importAudio: (sessionId, trackId) =>
     ipcRenderer.invoke("prism:audio:import", sessionId, trackId),
+  listAudioAssets: () => ipcRenderer.invoke("prism:audio:assets:list"),
+  importSample: () => ipcRenderer.invoke("prism:audio:sample:import"),
   startRecording: (input) => ipcRenderer.invoke("prism:audio:recording:start", input),
   appendRecordingChunk: (recordingId, samples) =>
     ipcRenderer.invoke("prism:audio:recording:append", recordingId, samples),
