@@ -750,7 +750,7 @@
           ...track,
           id: "independent-instrument",
           name: "Independent Instrument",
-          notes: [{ ...track.notes[0], id: "other-held" }],
+          notes: [{ ...track.notes[0], id: "other-held", durationBeats: 8 }],
         };
         const twoTracks = { ...unmuted, tracks: [...unmuted.tracks, otherTrack] };
         await engine.start(twoTracks, 0);
@@ -877,15 +877,16 @@
           await wait(100);
           assert(sampleEngine.snapshot().sampleErrors.length === 0, "A valid sample was reported as missing.");
           assert(sampleEngine.snapshot().meters[liveSampleTrack.id].peak < 0.005, "A muted live sampler was audible.");
-          sampleEngine.updateSession({
+          const unmutedSampleSession = {
             ...liveSampleSession,
             tracks: [{ ...liveSampleTrack, muted: false }],
-          });
+          };
+          sampleEngine.updateSession(unmutedSampleSession);
           await wait(180);
           assert(sampleEngine.snapshot().meters[liveSampleTrack.id].peak > 0.03,
             "Live sampler playback did not reach the track meter after unmuting.");
           sampleEngine.stop(true);
-          await sampleEngine.previewInstrumentNote(liveSampleSession, liveSampleTrack.id, 60, 127);
+          await sampleEngine.previewInstrumentNote(unmutedSampleSession, liveSampleTrack.id, 60, 127);
           await wait(120);
           assert(sampleEngine.snapshot().meters[liveSampleTrack.id].peak > 0.03,
             "Sampler preview did not reach its track audio path.");

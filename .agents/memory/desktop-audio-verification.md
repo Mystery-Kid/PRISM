@@ -25,3 +25,13 @@ what was tested.
 **How to apply:** Report browser/UI, storage, packaging, and physical-device
 checks separately; retain a real installed-app acceptance check for file-dialog
 and device behavior.
+
+Treat voice lifetime and mixer gating as separate from scheduling continuity.
+
+**Why:** A naturally completed voice or a correctly muted preview can look like
+a routing restart or missing audio in live graph assertions. These observations
+alone do not establish an engine regression.
+
+**How to apply:** Before changing production audio code for a failed live check,
+establish that the tested voice is still within its playback lifetime and its
+intended route is audible. Keep preview checks on the same mixer path as playback.
