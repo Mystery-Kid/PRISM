@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import type { AudioClip, SongSession, Track } from "@shared/types";
+import prismLogo from "../assets/prism-logo.png";
 
 type WorkstationProps = {
   session: SongSession;
@@ -339,7 +340,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     <main className="workstation">
       <header className="workstation-header">
         <div className="workstation-brand">
-          <button className="mini-brand" title="PRISM project library" onClick={() => void saveBeforeLeaving(onHome)}><b>PRISM</b></button>
+          <button className="mini-brand" title="PRISM project library" onClick={() => void saveBeforeLeaving(onHome)}><img className="workstation-logo" src={prismLogo} alt="" /><b>PRISM</b></button>
           <span className="crumb-divider">/</span>
           <button className="workstation-crumb" onClick={() => void saveBeforeLeaving(onBack)}>{releaseTitle}</button>
           <span className="crumb-divider">/</span>

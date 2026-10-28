@@ -465,6 +465,7 @@ function createWindow() {
     title: "PRISM",
     backgroundColor: "#101011",
     show: false,
+    icon: node_path.join(__dirname, "../../build/prism-512.png"),
     webPreferences: {
       preload: node_path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,

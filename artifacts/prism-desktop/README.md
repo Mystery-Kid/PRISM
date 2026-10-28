@@ -30,6 +30,6 @@ PRISM stores its library and copied media in the operating system's Electron app
 ## Current scope and limitations
 
 - The project library, local persistence, release/song navigation, artwork selection, and basic audio import/playback are implemented incrementally.
+- The supplied official PRISM PNG is used unchanged in the interface; Windows and Linux app icons are generated from it at standard icon sizes without recoloring or cropping the source.
 - Audio support depends on Chromium's local Web Audio decoding. This is not a claim of ASIO, Core Audio, JACK, native plug-in, or professional low-latency support.
 - Recording, MIDI instruments, effects, project backup restoration, and audio export are not enabled yet.
-- The official PRISM logo must be supplied before it can be used as the application mark or packaged icon. No replacement logo is included.

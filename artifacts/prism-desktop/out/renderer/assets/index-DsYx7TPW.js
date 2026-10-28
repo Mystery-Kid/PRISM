@@ -12285,6 +12285,7 @@ const __iconNode = [
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
 ];
 const X = createLucideIcon("x", __iconNode);
+const prismLogo = "" + new URL("prism-logo-BRELViVx.png", import.meta.url).href;
 const releaseTypes = ["Single", "EP", "Album", "LP", "Other"];
 function LibraryScreen(props) {
   const [search, setSearch] = reactExports.useState("");
@@ -12351,7 +12352,10 @@ function LibraryScreen(props) {
   const shop = props.currentTab === "shop";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("main", { className: "library-page", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "app-header", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "brand-lockup", "aria-label": "PRISM", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "brand-word", children: "PRISM" }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "brand-lockup", "aria-label": "PRISM", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("img", { className: "prism-logo", src: prismLogo, alt: "" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "brand-word", children: "PRISM" })
+      ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("nav", { className: "primary-nav", "aria-label": "Main navigation", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: !shop ? "nav-item active" : "nav-item", onClick: () => props.onTabChange("projects"), children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(FolderOpen, { size: 16 }),
@@ -12650,7 +12654,10 @@ function ReleaseOverview({
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("main", { className: "release-page", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "app-header", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "brand-lockup", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "brand-word", children: "PRISM" }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "brand-lockup", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("img", { className: "prism-logo", src: prismLogo, alt: "" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "brand-word", children: "PRISM" })
+      ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "release-header-path", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "text-button", onClick: onBack, children: "Projects" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "/" }),
@@ -13068,7 +13075,10 @@ function Workstation({ session: initialSession, releaseTitle, onBack, onHome }) 
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("main", { className: "workstation", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "workstation-header", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "workstation-brand", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "mini-brand", title: "PRISM project library", onClick: () => void saveBeforeLeaving(onHome), children: /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: "PRISM" }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "mini-brand", title: "PRISM project library", onClick: () => void saveBeforeLeaving(onHome), children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("img", { className: "workstation-logo", src: prismLogo, alt: "" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: "PRISM" })
+        ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "crumb-divider", children: "/" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "workstation-crumb", onClick: () => void saveBeforeLeaving(onBack), children: releaseTitle }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "crumb-divider", children: "/" }),

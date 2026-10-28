@@ -25,6 +25,7 @@ import type {
   SongSession,
   UpdateReleaseInput,
 } from "@shared/types";
+import prismLogo from "../assets/prism-logo.png";
 
 type Tab = "projects" | "shop";
 
@@ -123,6 +124,7 @@ export function LibraryScreen(props: LibraryProps) {
     <main className="library-page">
       <header className="app-header">
         <div className="brand-lockup" aria-label="PRISM">
+          <img className="prism-logo" src={prismLogo} alt="" />
           <span className="brand-word">PRISM</span>
         </div>
         <nav className="primary-nav" aria-label="Main navigation">
@@ -392,7 +394,7 @@ function ReleaseOverview({
   return (
     <main className="release-page">
       <header className="app-header">
-        <div className="brand-lockup"><span className="brand-word">PRISM</span></div>
+        <div className="brand-lockup"><img className="prism-logo" src={prismLogo} alt="" /><span className="brand-word">PRISM</span></div>
         <div className="release-header-path"><button className="text-button" onClick={onBack}>Projects</button><span>/</span><span>{release.title}</span></div>
         <div className="header-actions"><button className="icon-button" title="Settings" aria-label="Settings" onClick={onSettings}><Settings2 size={18} /></button></div>
       </header>

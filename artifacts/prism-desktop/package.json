@@ -36,10 +36,11 @@
     },
     "files": [
       "out/**/*",
+      "build/prism-512.png",
       "package.json"
     ],
     "win": {
-      "signAndEditExecutable": false,
+      "icon": "build/prism.ico",
       "target": [
         {
           "target": "nsis",
@@ -56,6 +57,7 @@
       "createStartMenuShortcut": true
     },
     "linux": {
+      "icon": "build/prism-512.png",
       "target": [
         "AppImage"
       ],
