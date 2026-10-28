@@ -12,6 +12,8 @@
       import { createElement, useState } from "react";
       import { createRoot } from "react-dom/client";
       import { EffectsPanel } from "../components/EffectsPanel.tsx";
+      import { RoutingPanel } from "../components/RoutingPanel.tsx";
+      import { getAllowedBusTargets } from "../../shared/audio-routing.ts";
 
       const result = document.getElementById("result");
       const report = (message) => fetch("/__prism_audio_test_result", {
@@ -78,15 +80,34 @@
         container.style.cssText = "position:fixed;left:-1500px;top:0;width:1100px;height:360px";
         document.body.append(container);
         function Harness() {
-          const [working, setWorking] = useState(session);
+          const [working, setWorking] = useState(() => ({
+            ...session,
+            buses: [...session.buses, {
+              id: "effects-bus",
+              name: "Effects Bus",
+              level: 1,
+              muted: false,
+              solo: false,
+              outputBusId: null,
+              sends: [],
+              effects: [],
+            }],
+          }));
+          const [selectedBusId, setSelectedBusId] = useState("");
           window.__effectsHarnessSession = working;
           return createElement(EffectsPanel, {
             session: working,
             selectedTrackId: working.tracks[0].id,
+            selectedBusId,
             onSelectTrack: () => {},
+            onSelectBus: setSelectedBusId,
             onUpdateTrackEffects: (id, effects) => setWorking((current) => ({
               ...current,
               tracks: current.tracks.map((track) => track.id === id ? { ...track, effects } : track),
+            })),
+            onUpdateBusEffects: (id, effects) => setWorking((current) => ({
+              ...current,
+              buses: current.buses.map((bus) => bus.id === id ? { ...bus, effects } : bus),
             })),
             onUpdateMasterEffects: (masterEffects) => setWorking((current) => ({ ...current, masterEffects })),
             onNotice: (message) => notices.push(message),
@@ -183,9 +204,102 @@
           assert.equal(stored.some((preset) => preset.name === "Global Chain"), false,
             "Delete did not remove the selected reusable preset.");
           assert(notices.length > 0, "Preset operations did not report their results.");
+        await setValue('[data-testid="select-effect-chain-target"]', "bus", "select");
+        await wait(35);
+        await click('[data-testid="button-browse-add-delay"]');
+        assert.equal(window.__effectsHarnessSession.buses[0].effects.length, 1,
+          "The effect editor did not save the chain to the selected bus.");
         } finally {
           root.unmount();
           container.remove();
+        }
+      };
+      const testRoutingWorkspace = async (initialSession) => {
+        const originalConfirm = window.confirm;
+        const originalPrompt = window.prompt;
+        let editedBusId = null;
+        const notices = [];
+        window.confirm = () => true;
+        window.prompt = () => "Drum Bus Renamed";
+        const container = document.createElement("div");
+        container.style.cssText = "position:fixed;left:-1500px;top:0;width:1100px;height:420px";
+        document.body.append(container);
+        function Harness() {
+          const [working, setWorking] = useState(initialSession);
+          window.__routingHarnessSession = working;
+          return createElement(RoutingPanel, {
+            session: working,
+            selectedTrackId: working.tracks[0]?.id ?? "",
+            meters: {},
+            allowedBusTargets: (sourceId) => getAllowedBusTargets(working.tracks, working.buses, sourceId),
+            onChange: setWorking,
+            onSelectTrack: () => {},
+            onEditBusEffects: (busId) => { editedBusId = busId; },
+            onNotice: (message) => notices.push(message),
+          });
+        }
+        const root = createRoot(container);
+        const lookup = (selector) => {
+          const element = container.querySelector(selector);
+          assert(element, `Missing routing control: ${selector}`);
+          return element;
+        };
+        const click = async (selector) => { lookup(selector).click(); await wait(30); };
+        const setValue = async (selector, value, tag = "input") => {
+          const element = lookup(selector);
+          const prototype = tag === "select" ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+          Object.getOwnPropertyDescriptor(prototype, "value").set.call(element, value);
+          element.dispatchEvent(new Event(tag === "select" ? "change" : "input", { bubbles: true }));
+          await wait(30);
+        };
+        try {
+          root.render(createElement(Harness));
+          await wait(60);
+          await click(".rp-add-bus");
+          await setValue("#rp-new-bus-name", "Drum Bus");
+          await click(".rp-create-confirm");
+          let state = window.__routingHarnessSession;
+          assert.equal(state.buses.length, 1, "The routing panel did not create a bus.");
+          const drumBusId = state.buses[0].id;
+          await click('[aria-label="Rename Drum Bus"]');
+          assert.equal(window.__routingHarnessSession.buses[0].name, "Drum Bus Renamed",
+            "The routing panel did not rename the bus.");
+
+          await setValue('[aria-label="Test Synth output destination"]', drumBusId, "select");
+          await click(".rp-track-list .rp-text-button");
+          state = window.__routingHarnessSession;
+          assert.equal(state.tracks[0].outputBusId, drumBusId, "The track output selector did not route to the bus.");
+          assert.equal(state.tracks[0].sends.length, 1, "The routing panel did not add a track send.");
+          await click('input[value="pre"]');
+          assert.equal(window.__routingHarnessSession.tracks[0].sends[0].placement, "pre",
+            "The send did not switch to pre-fader.");
+          await setValue('[aria-label="Drum Bus Renamed level"]', "0.65");
+          assert.equal(window.__routingHarnessSession.buses[0].level, 0.65,
+            "The bus fader did not update its saved level.");
+          await click('[aria-label="Edit effects for Drum Bus Renamed"]');
+          assert.equal(editedBusId, drumBusId, "The bus effects control did not select the bus.");
+
+          await click(".rp-add-bus");
+          await setValue("#rp-new-bus-name", "Aux");
+          await click(".rp-create-confirm");
+          state = window.__routingHarnessSession;
+          const auxBusId = state.buses.find((bus) => bus.name === "Aux").id;
+          await setValue('[aria-label="Aux output destination"]', drumBusId, "select");
+          const drumOutputOptions = [...lookup('[aria-label="Drum Bus Renamed output destination"]').options];
+          assert(!drumOutputOptions.some((option) => option.value === auxBusId),
+            "The UI offered an output that would create a routing cycle.");
+          await click('[aria-label="Delete Drum Bus Renamed"]');
+          state = window.__routingHarnessSession;
+          assert.equal(state.buses.some((bus) => bus.id === drumBusId), false, "Deleting the bus did not remove it.");
+          assert.equal(state.tracks[0].outputBusId, null, "Deleting a bus did not return its track output to Master.");
+          assert.equal(state.tracks[0].sends.length, 0, "Deleting a bus left a dangling send.");
+          assert.equal(state.buses[0].outputBusId, null, "Deleting a bus left a dangling bus output.");
+          assert(notices.length > 0, "Bus operations did not report their result.");
+        } finally {
+          root.unmount();
+          container.remove();
+          window.confirm = originalConfirm;
+          window.prompt = originalPrompt;
         }
       };
       let engine;
@@ -201,6 +315,7 @@
           metronomeEnabled: false,
           masterVolume: 1,
           masterEffects: [],
+          buses: [],
           updatedAt: new Date(0).toISOString(),
           tracks: [{
             id: "instrument-test",
@@ -225,6 +340,8 @@
               release: 0.18,
             },
             effects: [],
+            outputBusId: null,
+            sends: [],
           }],
         };
 
@@ -275,6 +392,83 @@
         assert(Math.abs(quarterMaster / fullLevel - 0.25) < 0.01, "The master level was not applied to WAV output.");
         assert(Math.abs(quarterTrack / fullLevel - 0.25) < 0.01, "The track level was not applied to WAV output.");
         assert(Math.abs(halfVelocity / fullLevel - 0.5) < 0.01, "Velocity did not scale the rendered performance.");
+        const renderBus = {
+          id: "render-submix",
+          name: "Render Submix",
+          level: 1,
+          muted: false,
+          solo: false,
+          outputBusId: null,
+          sends: [],
+          effects: [],
+        };
+        const routed = {
+          ...single,
+          buses: [renderBus],
+          tracks: [{ ...track, outputBusId: renderBus.id, sends: [] }],
+        };
+        const quarterBus = pcmRms(await render({
+          ...routed,
+          buses: [{ ...renderBus, level: 0.25 }],
+        }));
+        assert(Math.abs(quarterBus / fullLevel - 0.25) < 0.015,
+          "The bus level did not affect the exported signal independently of its track.");
+        const busEqualized = pcmRms(await render({
+          ...routed,
+          buses: [{
+            ...renderBus,
+            effects: [{ id: "bus-eq", type: "equalizer", enabled: true, parameters: { frequency: 440, gain: -18, q: 1 } }],
+          }],
+        }));
+        assert(busEqualized < fullLevel * 0.3, "Bus effects did not process the routed WAV signal.");
+
+        const auxiliary = { ...renderBus, id: "render-aux", name: "Render Aux" };
+        const preFaderTrack = {
+          ...track,
+          volume: 0,
+          outputBusId: auxiliary.id,
+          sends: [{ id: "track-pre", busId: auxiliary.id, level: 1, placement: "pre" }],
+        };
+        const postFaderTrack = {
+          ...preFaderTrack,
+          sends: [{ id: "track-post", busId: auxiliary.id, level: 1, placement: "post" }],
+        };
+        const preFaderSend = pcmRms(await render({
+          ...single,
+          buses: [auxiliary],
+          tracks: [preFaderTrack],
+        }));
+        const postFaderSend = pcmRms(await render({
+          ...single,
+          buses: [auxiliary],
+          tracks: [postFaderTrack],
+        }));
+        assert(preFaderSend > fullLevel * 0.8, "The pre-fader track send followed the track fader.");
+        assert(postFaderSend === 0, "The post-fader track send ignored a zero track fader.");
+
+        const submix = {
+          ...renderBus,
+          id: "render-submix-zero",
+          name: "Render Zero Submix",
+          level: 0,
+          sends: [{ id: "bus-pre", busId: auxiliary.id, level: 1, placement: "pre" }],
+        };
+        const busPreFaderSend = pcmRms(await render({
+          ...single,
+          buses: [submix, auxiliary],
+          tracks: [{ ...track, outputBusId: submix.id, sends: [] }],
+        }));
+        const busPostFaderSend = pcmRms(await render({
+          ...single,
+          buses: [{
+            ...submix,
+            sends: [{ id: "bus-post", busId: auxiliary.id, level: 1, placement: "post" }],
+          }, auxiliary],
+          tracks: [{ ...track, outputBusId: submix.id, sends: [] }],
+        }));
+        assert(busPreFaderSend > fullLevel * 0.8, "The pre-fader bus send followed the bus fader.");
+        assert(busPostFaderSend === 0, "The post-fader bus send ignored a zero bus fader.");
+
         const muted = await render({ ...single, tracks: [{ ...track, muted: true }] });
         assert(pcmRms(muted) === 0, "A muted instrument leaked into the export.");
         const zeroTrack = await render({ ...single, tracks: [{ ...track, volume: 0 }] });
@@ -323,6 +517,7 @@
         assert(pcmRms(audioWav, 0.05, 0.15) > 0.03, "Existing audio-clip rendering became silent.");
         await report({ progress: "testing the effect browser, editable chains, and preset library UI" });
         await testEffectsWorkspace(session);
+        await testRoutingWorkspace(session);
 
         // Real Web Audio graph checks use Chromium's silent sink, clock and meters.
         // They do not claim sound was heard through a physical Windows device.
@@ -395,6 +590,55 @@
           "Reordering the chain caused an audible playback dropout.");
         engine.updateSession(twoTracks);
 
+        const liveBus = {
+          id: "live-submix",
+          name: "Live Submix",
+          level: 1,
+          muted: false,
+          solo: false,
+          outputBusId: null,
+          sends: [],
+          effects: [],
+        };
+        const sharedBusSession = {
+          ...twoTracks,
+          buses: [liveBus],
+          tracks: twoTracks.tracks.map((item) => ({ ...item, outputBusId: liveBus.id, sends: [] })),
+        };
+        const sourcesBeforeRouting = [...engine.sources];
+        engine.updateSession(sharedBusSession);
+        await wait(180);
+        const busMeterFull = engine.snapshot().meters[`bus:${liveBus.id}`];
+        assert(busMeterFull?.peak > 0.03, "Multiple live tracks did not reach their shared bus meter.");
+        assert(engine.snapshot().meters.master.peak > 0.03, "The live bus signal did not reach the master.");
+        assert(sourcesBeforeRouting.every((source) => engine.sources.has(source)),
+          "Changing track outputs restarted active MIDI voices.");
+        engine.updateSession({
+          ...sharedBusSession,
+          buses: [{ ...liveBus, level: 0.25 }],
+        });
+        await wait(180);
+        const busMeterQuarter = engine.snapshot().meters[`bus:${liveBus.id}`];
+        assert(busMeterQuarter.rms < busMeterFull.rms * 0.45,
+          "The live bus fader did not change its metered output level.");
+        const soloBusSession = {
+          ...sharedBusSession,
+          buses: [{ ...liveBus, solo: true }],
+          tracks: [
+            { ...twoTracks.tracks[0], outputBusId: liveBus.id, sends: [] },
+            { ...otherTrack, outputBusId: null, sends: [] },
+          ],
+        };
+        engine.updateSession(soloBusSession);
+        await wait(170);
+        assert(engine.snapshot().meters[otherTrack.id].peak < 0.005,
+          "Soloing a bus did not silence unrelated master-routed tracks.");
+        assert(engine.snapshot().meters[track.id].peak > 0.03,
+          "Soloing a bus silenced its upstream track.");
+        assert(sourcesBeforeRouting.every((source) => engine.sources.has(source)),
+          "Changing bus solo/routing restarted active MIDI voices.");
+        engine.updateSession(twoTracks);
+
         engine.seek(1);
         await wait(250);
         assert(engine.snapshot().position >= 1, "Seek did not restore the requested timeline position.");
@@ -416,7 +660,7 @@
         assert(engine.snapshot().status === "stopped", "Closing a project restarted its audio.");
         engine = null;
 
-        result.textContent = `PASS: MIDI/audio rendering, effects browser and chains, preset CRUD/import/export, order/bypass/isolation, live edits, transport and disposal; WAV peak ${peak}.`;
+        result.textContent = `PASS: MIDI/audio rendering, bus routing and effects, pre/post sends, cycle-safe routing UI, preset CRUD, live bus meters/solo, transport and disposal; WAV peak ${peak}.`;
         document.body.dataset.testResult = "pass";
       } catch (error) {
         result.textContent = `FAIL: ${error instanceof Error ? error.message : String(error)}`;

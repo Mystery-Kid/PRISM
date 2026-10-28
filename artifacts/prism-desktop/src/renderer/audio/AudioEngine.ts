@@ -6,10 +6,20 @@ import type {
   SongSession,
   Track,
 } from "@shared/types";
+import { deriveRoutingAudibility, validateAudioRouting } from "@shared/audio-routing";
 import captureProcessorUrl from "./capture-processor.js?url";
 import { parseTimeSignature, secondsPerBeat } from "./time";
 import { getClipWindow, getSessionDuration } from "./timeline";
-import { createMasterGraph, createTrackGraph, readMeter, type MasterGraph, type TrackGraph } from "./graph";
+import {
+  AudioRoutingGraph,
+  createBusGraph,
+  createMasterGraph,
+  createTrackGraph,
+  readMeter,
+  type BusGraph,
+  type MasterGraph,
+  type TrackGraph,
+} from "./graph";
 import { renderSessionWav } from "./render";
 import { createMidiEnvelopePlan, getMidiPlaybackWindow, midiPitchToFrequency } from "./midi";
 
@@ -56,6 +66,8 @@ export class AudioEngine {
   private assetUrl: (assetId: string) => string;
   private decodedAssets = new Map<string, AudioBuffer>();
   private tracks = new Map<string, TrackGraph>();
+  private buses = new Map<string, BusGraph>();
+  private routingGraph = new AudioRoutingGraph();
   private master: MasterGraph | null = null;
   private sources = new Set<ScheduledNode>();
   private scheduler: ReturnType<typeof setInterval> | null = null;
@@ -122,6 +134,7 @@ export class AudioEngine {
   snapshot(): AudioEngineSnapshot {
     const meters: AudioEngineSnapshot["meters"] = {};
     for (const [trackId, graph] of this.tracks) meters[trackId] = readMeter(graph.analyser);
+    for (const [busId, graph] of this.buses) meters[`bus:${busId}`] = readMeter(graph.analyser);
     if (this.master) meters.master = readMeter(this.master.analyser);
     return {
       status: this.running ? "playing" : "stopped",
@@ -423,8 +436,11 @@ export class AudioEngine {
     if (this.recordingId) await this.stopRecording().catch(() => undefined);
     this.clearScheduler();
     this.stopScheduledSources();
+    this.routingGraph.dispose();
     this.tracks.forEach((graph) => graph.dispose());
     this.tracks.clear();
+    this.buses.forEach((graph) => graph.dispose());
+    this.buses.clear();
     this.master?.dispose();
     this.master = null;
     await this.context?.close();
@@ -465,6 +481,8 @@ export class AudioEngine {
 
   private syncGraphs(session: SongSession): void {
     if (!this.context) return;
+    const buses = session.buses ?? [];
+    validateAudioRouting(session.tracks, buses);
     if (!this.master) {
       this.master = createMasterGraph(
         this.context,
@@ -475,7 +493,22 @@ export class AudioEngine {
     } else {
       this.master.update(session.masterVolume, session.masterEffects);
     }
-    const isSoloed = session.tracks.some((track) => track.solo);
+    const audibility = deriveRoutingAudibility(session.tracks, buses);
+    const busIds = new Set(buses.map((bus) => bus.id));
+    for (const [id, graph] of this.buses) {
+      if (!busIds.has(id)) {
+        graph.dispose();
+        this.buses.delete(id);
+      }
+    }
+    for (const bus of buses) {
+      let graph = this.buses.get(bus.id);
+      if (!graph) {
+        graph = createBusGraph(this.context, bus);
+        this.buses.set(bus.id, graph);
+      }
+      graph.update(bus, audibility.buses.get(bus.id) ?? false);
+    }
     const ids = new Set(session.tracks.map((track) => track.id));
     for (const [id, graph] of this.tracks) {
       if (!ids.has(id)) {
@@ -486,11 +519,12 @@ export class AudioEngine {
     for (const track of session.tracks) {
       let graph = this.tracks.get(track.id);
       if (!graph) {
-        graph = createTrackGraph(this.context, track, this.master.input);
+        graph = createTrackGraph(this.context, track);
         this.tracks.set(track.id, graph);
       }
-      graph.update(track, !isSoloed || track.solo);
+      graph.update(track, audibility.tracks.get(track.id) ?? false);
     }
+    this.routingGraph.update(session.tracks, buses, this.tracks, this.buses, this.master.input);
   }
 
   private totalDuration(): number {

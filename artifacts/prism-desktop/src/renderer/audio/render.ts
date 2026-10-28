@@ -1,5 +1,11 @@
 import type { MidiNote, SongSession, Track } from "@shared/types";
-import { createMasterGraph, createTrackGraph } from "./graph";
+import { deriveRoutingAudibility, validateAudioRouting } from "@shared/audio-routing";
+import {
+  AudioRoutingGraph,
+  createBusGraph,
+  createMasterGraph,
+  createTrackGraph,
+} from "./graph";
 import { beatToSeconds } from "./time";
 import { encodeAudioBufferWav } from "./wav";
 import { getClipWindow, getSessionDuration } from "./timeline";
@@ -21,10 +27,14 @@ export async function renderSessionWav(
     effect.enabled && (effect.type === "reverb" || effect.type === "delay"),
   ) || session.tracks.some((track) => track.effects.some((effect) =>
     effect.enabled && (effect.type === "reverb" || effect.type === "delay"),
+  )) || (session.buses ?? []).some((bus) => bus.effects.some((effect) =>
+    effect.enabled && (effect.type === "reverb" || effect.type === "delay"),
   ));
   const tailSeconds = hasTail ? 4 : 0;
   const frameCount = Math.ceil((duration + tailSeconds) * exportSampleRate);
   const context = new OfflineAudioContext(2, frameCount, exportSampleRate);
+  const buses = session.buses ?? [];
+  validateAudioRouting(session.tracks, buses);
   const master = createMasterGraph(
     context,
     session.masterVolume,
@@ -32,12 +42,20 @@ export async function renderSessionWav(
     context.destination,
   );
   const graphs = new Map<string, ReturnType<typeof createTrackGraph>>();
-  const isSoloed = session.tracks.some((track) => track.solo);
+  const busGraphs = new Map<string, ReturnType<typeof createBusGraph>>();
+  const routing = new AudioRoutingGraph();
+  const audibility = deriveRoutingAudibility(session.tracks, buses);
+  for (const bus of buses) {
+    const graph = createBusGraph(context, bus);
+    graph.update(bus, audibility.buses.get(bus.id) ?? false);
+    busGraphs.set(bus.id, graph);
+  }
   for (const track of session.tracks) {
-    const graph = createTrackGraph(context, track, master.input);
-    graph.update(track, !isSoloed || track.solo);
+    const graph = createTrackGraph(context, track);
+    graph.update(track, audibility.tracks.get(track.id) ?? false);
     graphs.set(track.id, graph);
   }
+  routing.update(session.tracks, buses, graphs, busGraphs, master.input);
 
   const assetIds = [...new Set(session.tracks.flatMap((track) =>
     track.clips.map((clip) => clip.assetId),
@@ -46,7 +64,7 @@ export async function renderSessionWav(
   await Promise.all(assetIds.map(async (id) => audio.set(id, await getAudio(id))));
 
   for (const track of session.tracks) {
-    if (track.muted || (isSoloed && !track.solo)) continue;
+    if (!(audibility.tracks.get(track.id) ?? false)) continue;
     const graph = graphs.get(track.id);
     if (!graph) continue;
     for (const clip of track.clips) {
@@ -90,7 +108,9 @@ export async function renderSessionWav(
 
   if (session.metronomeEnabled) scheduleOfflineMetronome(context, session, master.input, duration);
   const rendered = await context.startRendering();
+  routing.dispose();
   graphs.forEach((graph) => graph.dispose());
+  busGraphs.forEach((graph) => graph.dispose());
   master.dispose();
   return encodeAudioBufferWav(rendered);
 }

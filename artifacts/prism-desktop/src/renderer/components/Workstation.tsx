@@ -14,6 +14,8 @@ import { AudioEngine, type AudioDevice, type AudioEngineSnapshot } from "../audi
 import { secondsPerBeat } from "../audio/time";
 import { getPianoNoteDragUpdate, type PianoNoteDragState } from "./piano-roll";
 import { EffectsPanel } from "./EffectsPanel";
+import { RoutingPanel } from "./RoutingPanel";
+import { getAllowedBusTargets } from "@shared/audio-routing";
 import prismLogo from "../assets/prism-logo.png";
 
 type WorkstationProps = {
@@ -57,7 +59,8 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const [monitoring, setMonitoring] = useState(false);
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState("");
-  const [panel, setPanel] = useState<"mixer" | "clip" | "piano" | "effects" | "devices">("mixer");
+  const [panel, setPanel] = useState<"mixer" | "clip" | "piano" | "effects" | "routing" | "devices">("mixer");
+  const [selectedEffectBusId, setSelectedEffectBusId] = useState("");
   const [notice, setNotice] = useState("");
   const [historyAvailability, setHistoryAvailability] = useState({ canUndo: false, canRedo: false });
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -310,7 +313,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       type, color: colors[session.tracks.length % colors.length], volume: 0.82, pan: 0,
       muted: false, solo: false, recordArmed: false, clips: [], notes: [],
       instrument: type === "instrument" ? { waveform: "triangle", attack: 0.015, decay: 0.12, sustain: 0.62, release: 0.18 } : null,
-      effects: [],
+       effects: [], outputBusId: null, sends: [],
     };
     setSession((current) => ({ ...current, tracks: [...current.tracks, track] }));
     setSelectedTrack(track.id);
@@ -566,9 +569,9 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       <div className="arrangement-footer"><span>{session.tracks.length} {session.tracks.length === 1 ? "track" : "tracks"}</span><span>Local project audio · {session.timeSignature} · {session.tempo} BPM</span></div>
     </section>
 
-    <section className={`workstation-bottom ${panel === "effects" ? "effects-open" : ""}`}>
+    <section className={`workstation-bottom ${panel === "effects" ? "effects-open" : ""} ${panel === "routing" ? "routing-open" : ""}`}>
       <nav className="lower-panel-tabs" aria-label="Workstation panels">
-        {(["mixer", "clip", "piano", "effects", "devices"] as const).map((tab) => <button key={tab} className={`lower-tab ${panel === tab ? "active" : ""}`} data-testid={`tab-${tab}`} onClick={() => setPanel(tab)}>{tab === "mixer" ? <SlidersHorizontal size={13} /> : tab === "clip" ? <AudioLines size={13} /> : tab === "piano" ? <Music2 size={13} /> : tab === "effects" ? <Sparkles size={13} /> : <Headphones size={13} />}{tab === "clip" ? "Clip" : tab === "devices" ? "I/O" : tab[0].toUpperCase() + tab.slice(1)}</button>)}
+        {(["mixer", "clip", "piano", "effects", "routing", "devices"] as const).map((tab) => <button key={tab} className={`lower-tab ${panel === tab ? "active" : ""}`} data-testid={`tab-${tab}`} onClick={() => { if (tab === "effects") setSelectedEffectBusId(""); setPanel(tab); }}>{tab === "mixer" ? <SlidersHorizontal size={13} /> : tab === "clip" ? <AudioLines size={13} /> : tab === "piano" ? <Music2 size={13} /> : tab === "effects" ? <Sparkles size={13} /> : tab === "routing" ? <AudioLines size={13} /> : <Headphones size={13} />}{tab === "clip" ? "Clip" : tab === "devices" ? "I/O" : tab[0].toUpperCase() + tab.slice(1)}</button>)}
       </nav>
       {panel === "mixer" && <div className="mixer-channels">
         {session.tracks.map((track) => <div className="mixer-channel" key={track.id}>
@@ -619,11 +622,24 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         </div>
         {!selectedInstrument && <div className="piano-hint">Choose an instrument track to edit notes. Click the grid to place a note.</div>}
       </div>}
+      {panel === "routing" && <RoutingPanel
+        session={session}
+        selectedTrackId={selectedTrack}
+        meters={snapshot.meters}
+        allowedBusTargets={(busId) => getAllowedBusTargets(session.tracks, session.buses, busId)}
+        onChange={setSession}
+        onSelectTrack={setSelectedTrack}
+        onEditBusEffects={(busId) => { setSelectedEffectBusId(busId); setPanel("effects"); }}
+        onNotice={setNotice}
+      />}
       {panel === "effects" && <EffectsPanel
         session={session}
         selectedTrackId={selectedTrack}
+        selectedBusId={selectedEffectBusId}
         onSelectTrack={setSelectedTrack}
+        onSelectBus={setSelectedEffectBusId}
         onUpdateTrackEffects={(trackId, effects) => updateTrack(trackId, { effects })}
+        onUpdateBusEffects={(busId, effects) => setSession((current) => ({ ...current, buses: current.buses.map((bus) => bus.id === busId ? { ...bus, effects } : bus) }))}
         onUpdateMasterEffects={(effects) => setSession((current) => ({ ...current, masterEffects: effects }))}
         onNotice={setNotice}
       />}
