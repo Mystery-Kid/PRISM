@@ -1,0 +1,148 @@
+### Project Library Visual Design: Minimalist, Premium Music Studio
+
+Design PRISM's home screen as a sophisticated, minimalist desktop music application with a refined, dark aesthetic. The interface should feel like a premium creative workspace: quiet, spacious, artwork-focused, and professionally designed.
+
+The goal is to make browsing music projects feel similar to browsing a personal collection of albums in a modern music studio application, rather than navigating a file manager or business dashboard.
+
+#### Overall appearance
+
+Use a deep black or near-black background across the entire application. Build a subtle visual hierarchy using slightly lighter charcoal surfaces, restrained borders, and carefully spaced elements.
+
+The design should be understated and uncluttered. Avoid large decorative banners, oversized dashboard widgets, excessive cards within cards, bright gradients, unnecessary glow effects, and excessive use of accent colors.
+
+Let the project artwork provide most of the color and personality.
+
+Use clean, modern sans-serif typography. Main headings should be prominent but not oversized. Project titles should be readable and visually distinct from their secondary metadata. Use soft grey for supporting text and white for important labels.
+
+The interface should feel cohesive, with generous negative space and consistent alignment. Every element should appear intentionally placed.
+
+#### Application header
+
+Create a slim, unobtrusive application header.
+
+Place the official PRISM logo and wordmark toward the upper-left corner. Preserve the supplied logo exactly, including its segmented rainbow ring and dark central triangle.
+
+Place the primary navigation in the same header or in a compact navigation area, with Projects and Shop clearly accessible.
+
+Include a settings icon or menu toward the opposite side of the header.
+
+The header should remain visually quiet. Avoid a large marketing-style hero section or oversized branding that pushes the user's projects down the screen.
+
+#### Main content area
+
+Position the main project library beneath the header, with comfortable spacing around the content.
+
+Use a clear heading reading "Your Projects".
+
+Underneath, display a short, muted subtitle such as "Your music, all in one place."
+
+Place a prominent but restrained "New Project" button near the heading, aligned to the right on wider screens. It should be easy to find without overpowering the page.
+
+Below the heading area, provide a compact search field and understated sorting and filtering controls. Keep these controls visually secondary to the projects themselves.
+
+Do not add unnecessary summary statistics, recent activity feeds, promotional banners, or other dashboard elements.
+
+#### Project artwork grid
+
+The central feature of the home screen must be a clean grid of square project artwork.
+
+Each project should be presented as a compact, artwork-first item rather than a bulky rectangular information card.
+
+Use large square cover images with consistent dimensions and alignment. Maintain the artwork's square aspect ratio and crop images without stretching them.
+
+On desktop, display multiple projects per row, with the number of columns adapting to the available window width. Use consistent gaps between projects and enough spacing that the artwork never feels cramped.
+
+The artwork should be the dominant element of each project item. Do not surround every image with a thick border or a heavy card background. Let the image sit naturally against the dark application background.
+
+Directly underneath each image, display the project title in white or near-white text. Place the release type beneath the title in smaller, muted text.
+
+Examples:
+
+Through the Vineyard
+EP · 10 tracks
+
+Picture Perfect
+Single
+
+Keep the title and metadata left-aligned with the artwork. Truncate exceptionally long titles gracefully without breaking the layout, and provide a way to see the full title.
+
+Do not place the project title over the artwork by default. Keep the information beneath the image for a clean, consistent arrangement.
+
+Use subtle hover feedback when the user moves over a project. A slight change in brightness, a thin border, or a small, understated context-menu control is sufficient. Avoid dramatic animations or exaggerated scaling.
+
+The project item must be clickable and keyboard-accessible.
+
+#### Artwork and missing images
+
+Allow each project to have its own uploaded cover artwork.
+
+If a project does not have artwork, show a tasteful placeholder using PRISM's dark visual style. A restrained abstract geometric design or a simplified spectrum-inspired pattern is appropriate.
+
+Do not automatically use the official PRISM logo as every project's cover image.
+
+The application logo represents PRISM. Project artwork represents the user's individual music releases.
+
+#### Project actions
+
+Keep secondary actions hidden until needed or place them in a subtle three-dot context menu.
+
+Available actions should include:
+- Rename project.
+- Change artwork.
+- Duplicate project.
+- Export project backup.
+- Delete project.
+
+These actions must operate on actual saved projects. Ask for confirmation before deleting a project.
+
+Clicking a project should open it. Clicking its context menu must not accidentally open the project.
+
+#### Navigation and the Shop
+
+Keep Projects and Shop consistently accessible without distracting from the project grid.
+
+The Shop should use the same dark, minimalist design language. For the initial version, it must display the heading "PRISM Shop" and the exact message "Still In Development! :D", accompanied by a short explanation that new creative tools and content may be introduced in the future.
+
+Do not create fake products, prices, shopping carts, or purchase buttons.
+
+#### PRISM color palette
+
+Use the official logo's segmented rainbow spectrum as the inspiration for small interface accents.
+
+The majority of the interface should remain black, charcoal, white, and grey.
+
+Use accent colors selectively for:
+- The selected navigation item.
+- Active buttons or controls.
+- Selected projects where appropriate.
+- Small indicators and interaction states.
+
+Do not apply a rainbow gradient to every button, heading, card, or background.
+
+The rainbow logo should be recognizable and memorable precisely because the rest of the interface is restrained.
+
+#### Desktop application behavior
+
+PRISM is a downloadable desktop application, not a website.
+
+Design the project library to feel natural inside a resizable desktop application window. Make efficient use of wide screens while maintaining sensible margins and spacing.
+
+The grid should automatically adapt to the window size without distorting artwork or creating excessively narrow project items.
+
+Prioritize desktop usability. Smaller windows should remain usable, but the interface should not sacrifice the intended spacious desktop layout.
+
+#### Functional requirements
+
+The visual design must be implemented using real application components and real project data.
+
+The project grid must update when projects are created, renamed, duplicated, or deleted.
+
+Search and sorting controls must work.
+
+Artwork uploads must persist.
+
+Clicking a Single must open its workstation immediately. Clicking an EP, Album, LP, or Other multi-track release must open its release overview.
+
+The interface must remain consistent with PRISM's branding while allowing the workstation itself to use a more information-dense, editing-focused layout.
+
+Prioritize visual polish, consistent spacing, excellent artwork presentation, and functional navigation over unnecessary decorative elements.

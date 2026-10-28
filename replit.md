@@ -1,12 +1,16 @@
-# [Project name]
+# PRISM Desktop DAW
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+PRISM is an offline-first Electron music studio for organizing releases and producing individual songs on a desktop computer.
 
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
+- `pnpm --filter @workspace/prism-desktop run dev` — launch the PRISM desktop app in development
+- `pnpm --filter @workspace/prism-desktop run typecheck` — typecheck the Electron app
+- `pnpm --filter @workspace/prism-desktop run build` — build the Electron main, preload, and renderer bundles
+- `pnpm --filter @workspace/prism-desktop run package:win` — create the Windows installer on a compatible build host
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
@@ -22,19 +26,28 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/prism-desktop/src/main` — Electron main process, IPC, local file persistence
+- `artifacts/prism-desktop/src/preload` — narrow renderer bridge; keep Node.js unavailable to UI code
+- `artifacts/prism-desktop/src/renderer` — React project library, release views, and workstation
+- `artifacts/prism-desktop/src/shared/types.ts` — release, song-session, and IPC types
+- `artifacts/prism-desktop/README.md` — desktop development, packaging, and current limitations
+- `.github/workflows/prism-desktop-windows.yml` — Windows installer build job
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- PRISM is a real Electron desktop application, not a website with desktop packaging deferred.
+- Core project metadata and media live under Electron's local application-data directory; core project work does not require accounts, a hosted database, or internet access.
+- The renderer uses context isolation, a sandboxed preload, disabled Node integration, and allowlisted IPC calls.
+- Keep unsupported audio capabilities visibly unavailable; do not imply recording, native plug-ins, advanced low-latency drivers, MIDI instruments, or export work until implemented and verified.
+- Use the supplied official PRISM logo only. If it is not available, request it rather than making a replacement.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+The project library is PRISM's opening screen. Singles open their song session directly; multi-track releases open an overview with independent song sessions. The Shop remains a navigation destination and shows “Still In Development! :D”.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Treat PRISM as a downloadable, offline-capable desktop application from the start.
 
 ## Gotchas
 

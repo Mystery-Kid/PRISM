@@ -1,0 +1,45 @@
+name: Build PRISM Windows installer
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "artifacts/prism-desktop/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/prism-desktop-windows.yml"
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck PRISM
+        run: pnpm --filter @workspace/prism-desktop run typecheck
+
+      - name: Build Windows installer
+        run: pnpm --filter @workspace/prism-desktop run package:win
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: PRISM-Windows-Installer
+          path: artifacts/prism-desktop/release/PRISM Setup *.exe
+          if-no-files-found: error
+          retention-days: 30

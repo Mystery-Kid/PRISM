@@ -1,0 +1,71 @@
+{
+  "name": "@workspace/prism-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PRISM offline-first desktop music studio",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "electron-vite build",
+    "package:win": "pnpm run build && electron-builder --win nsis",
+    "package:linux": "pnpm run build && electron-builder --linux AppImage",
+    "package:mac": "pnpm run build && electron-builder --mac dmg"
+  },
+  "dependencies": {
+    "lucide-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "electron": "^41.0.0",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^5.0.0",
+    "typescript": "^5.9.3",
+    "vite": "catalog:"
+  },
+  "build": {
+    "appId": "com.prismmusic.desktop",
+    "productName": "PRISM",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "AudioVideo"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.music"
+    }
+  }
+}

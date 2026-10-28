@@ -1,0 +1,169 @@
+# CRITICAL ARCHITECTURE REQUIREMENT: PRISM MUST BE A DOWNLOADABLE DESKTOP APPLICATION
+
+PRISM is a desktop music production application, NOT a website.
+
+The final product must be installable and launchable from the user's computer without requiring a browser, a hosted website, or an active internet connection for its core music production features.
+
+A browser preview may be used during development, but it is not the final product.
+
+## 1. Desktop application architecture
+
+Build PRISM as a cross-platform desktop application using Electron, with a maintainable frontend, a secure desktop application layer, and a real audio engine.
+
+Use:
+- Electron for the desktop application shell and packaging.
+- React and TypeScript for the user interface, if compatible with the project architecture.
+- A suitable local database for project metadata and session state.
+- Local filesystem storage for project artwork, imported audio, recordings, and project assets.
+- The Web Audio API and AudioWorklet where appropriate for audio processing.
+- A suitable packaging and installer system, such as electron-builder.
+
+Do not build a website first and leave desktop packaging as a future possibility. Desktop distribution is a core requirement from the beginning.
+
+Keep the interface, project management, audio engine, persistence, and desktop-specific operations organized into separate modules.
+
+Use Electron's secure configuration practices. Enable context isolation, disable Node.js integration in the renderer, and expose only the necessary desktop functionality through a carefully defined preload API and IPC handlers.
+
+Do not expose arbitrary filesystem access or unrestricted Node.js APIs to the interface.
+
+## 2. Downloadable installers
+
+Prioritize Windows desktop distribution first.
+
+The application must eventually produce:
+- A Windows installer, preferably an executable installer.
+- An installed PRISM application with its own name and icon.
+- A Start Menu shortcut and desktop shortcut where appropriate.
+- A normal application launch experience.
+- A clean application shutdown and restart experience.
+
+Structure the project to support macOS and Linux builds later, where the available build environment permits.
+
+Do not claim that installers for an operating system have been produced or tested unless they actually have.
+
+If Replit cannot produce a particular installer directly, configure the project so it can be built through a documented process or automated build workflow, such as GitHub Actions.
+
+Provide simple instructions for obtaining the installer, installing PRISM, launching it, and updating it.
+
+## 3. Offline-first music production
+
+PRISM must be designed around local desktop use.
+
+The following core functionality must work without an internet connection once the application has been installed:
+- Launching PRISM.
+- Browsing and creating projects.
+- Creating Singles, EPs, albums, LPs, and other releases.
+- Managing release artwork and track lists.
+- Opening song workstations.
+- Importing audio from the local computer.
+- Saving and reopening projects.
+- Editing timelines and supported audio clips.
+- Playing audio through the computer's audio output.
+- Using implemented built-in instruments and effects.
+- Recording audio where the operating system and hardware permit it.
+- Exporting supported audio formats.
+
+Do not require a hosted database, online account, or remote server for basic project creation, editing, playback, or saving.
+
+Internet access may be used for future optional features such as the PRISM Shop, online content downloads, account services, and collaboration. These must remain separate from the core offline production workflow.
+
+If the internet is unavailable, PRISM must still launch and provide access to locally saved projects.
+
+## 4. Local project and file management
+
+Treat the user's computer as the primary location for music projects.
+
+Create a dedicated PRISM data directory using the operating system's appropriate application-data or documents location.
+
+Allow users to choose where their music projects are stored when practical.
+
+Store project metadata, session files, artwork, recordings, imported media references, and other required assets in a reliable structure.
+
+Support projects containing multiple songs, with each song maintaining its own independent session.
+
+Provide a way to locate the project folder from within the application where the operating system permits it.
+
+Use safe filesystem operations and prevent accidental overwriting or deletion of unrelated files.
+
+Do not rely on temporary browser storage or session-only state for permanent project data.
+
+Implement a reliable project backup and restoration system.
+
+Handle moved or missing audio files gracefully. Explain which files are missing and provide a way to locate them again where practical.
+
+## 5. Desktop audio behavior
+
+PRISM is a music production application, so audio handling must be treated as a primary engineering requirement.
+
+Use desktop audio capabilities appropriately and do not assume that a browser preview fully represents the installed application's behavior.
+
+Implement:
+- Audio playback through the operating system.
+- Audio device selection where supported.
+- Clear microphone and recording permissions.
+- Proper audio resource management.
+- Reliable play, pause, stop, and seek behavior.
+- Correct synchronization between the playhead and audio playback.
+- Appropriate handling of audio device changes and errors.
+
+Design the audio architecture to support lower-latency recording and monitoring as the application develops.
+
+Do not claim ASIO, Core Audio, JACK, native plugin, or professional low-latency support until the required backend has actually been implemented and tested.
+
+The initial version may use the available desktop audio facilities, but the architecture must document the limitations and provide a path toward more advanced audio support.
+
+## 6. Native desktop experience
+
+PRISM should feel like a dedicated application, not a website wrapped in a window.
+
+Provide:
+- A native application window with an appropriate title.
+- The official PRISM logo and application icon.
+- A proper application menu.
+- Keyboard shortcuts for common actions.
+- File dialogs for importing, saving, exporting, and locating assets.
+- Appropriate minimize, maximize, and close behavior.
+- Resizable windows.
+- Sensible startup behavior.
+- Clear error messages and recoverable application failures.
+
+The project library must remain the opening screen.
+
+The Projects and Shop tabs must remain accessible, with the Shop displaying:
+
+"Still In Development! :D"
+
+The existing project-management requirements remain unchanged:
+- Singles open directly into their workstation.
+- EPs, albums, LPs, and other multi-track releases open into a release overview containing individual songs.
+- Every song has an independent workstation session.
+
+The workstation must retain the original PRISM design direction and take inspiration from Cakewalk Next and BandLab's approachable music production workflows without copying their branding or exact interface.
+
+## 7. Packaging and build verification
+
+Create working development and production build scripts.
+
+Provide documented commands for:
+- Running PRISM during development.
+- Building the production desktop application.
+- Packaging the Windows installer.
+- Building other supported operating-system targets where practical.
+
+Test the packaged application independently from the development preview.
+
+Verify that:
+- PRISM launches from the installed application.
+- The project library loads.
+- New projects can be created.
+- Artwork and project data persist after closing and reopening the app.
+- Singles and multi-track releases navigate correctly.
+- Audio can be imported and played.
+- Projects remain accessible without internet connectivity.
+- The application handles missing files and errors appropriately.
+
+Do not declare the desktop application complete merely because the development preview runs.
+
+The final deliverable must include the application source code, reproducible build configuration, and the actual installer or a clearly documented process for generating it.
+
+Begin by establishing the Electron desktop architecture and making sure the project can be packaged successfully. Then implement the PRISM interface and music production features within that architecture.

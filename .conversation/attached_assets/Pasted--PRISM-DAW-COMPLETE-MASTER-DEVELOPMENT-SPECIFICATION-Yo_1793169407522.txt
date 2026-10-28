@@ -1,0 +1,1147 @@
+# PRISM DAW — COMPLETE MASTER DEVELOPMENT SPECIFICATION
+
+## Your task and role
+
+You are the lead software architect, senior full-stack developer, digital audio workstation engineer, audio interface designer, database engineer, and quality assurance tester responsible for building PRISM.
+
+PRISM is an original digital audio workstation designed for musicians, songwriters, producers, and bands. It should combine the accessibility of BandLab with the streamlined, modern music production workflow associated with Cakewalk Next, while developing its own identity and feature set.
+
+I am a beginner programmer. I want you to handle as much of the technical work as possible. Build the application, implement the functionality, configure the environment, run it, test it, diagnose problems, and fix them. Explain decisions that require my input in plain English.
+
+I do not want a static prototype, a landing page pretending to be a DAW, or a collection of buttons that do nothing. I want a real application that we can progressively develop into a complete music production platform.
+
+Do not claim a feature works unless you have implemented and tested it.
+
+Do not attempt to generate the entire professional-grade audio engine in one enormous step. Build the application in a maintainable sequence, preserving existing functionality and data as it grows.
+
+The final product should be called PRISM throughout the interface.
+
+---
+
+# PART 1: PRODUCT VISION AND BRAND IDENTITY
+
+## 1.1 What PRISM is
+
+PRISM is a personal music studio that can eventually be shared with other musicians.
+
+It should allow users to organize their music into releases, create individual songs, record and arrange audio, program MIDI, use instruments and effects, mix tracks, and export completed music.
+
+The application must have two distinct experiences:
+
+1. A project management environment where users organize singles, EPs, albums, and other releases.
+2. A full music production environment where users open individual songs and work on their audio.
+
+There should also be a Shop section reserved for future downloadable content, instruments, effects, presets, sound packs, and other expansions.
+
+The application should be approachable to a beginner without feeling restrictive to an experienced musician.
+
+## 1.2 Official PRISM logo
+
+I have supplied the official PRISM logo. It features a segmented rainbow-colored ring surrounding a subtle dark triangle on a black background.
+
+Use the exact supplied image as the official logo.
+
+Requirements:
+
+- Preserve the original artwork, colors, proportions, and composition.
+- Do not redraw or substitute another logo.
+- Do not distort, recolor, crop, or add effects to the original artwork.
+- Store the image as a project asset and reference it reliably.
+- Use appropriate sizing for the application header, welcome screen, and loading screen.
+- Create a favicon or application icon derived from the supplied image when practical.
+- Ensure that the image remains crisp at different sizes.
+- If the logo file is inaccessible, ask me to provide it rather than inventing a replacement.
+
+## 1.3 Visual language
+
+PRISM must have a consistent visual identity across the entire application.
+
+Use:
+
+- A near-black background for the main application.
+- Deep charcoal panels and slightly lighter surfaces for cards and toolbars.
+- White for primary text.
+- Soft grey for secondary text, descriptions, and metadata.
+- The rainbow spectrum from the logo for restrained accent colors.
+- Thin separators and subtle borders.
+- Consistent corner radii and spacing.
+- A clean, modern, professional typeface.
+- Smooth, restrained transitions.
+- Clear hover, focus, selected, disabled, and active states.
+
+Use rainbow accents for selected tracks, active controls, audio visualizations, progress indicators, and other appropriate highlights.
+
+Do not make every panel rainbow-colored. The interface should be dark and comfortable for long music production sessions.
+
+Avoid excessive gradients, strong glow effects, unnecessary animations, clutter, and generic business-dashboard layouts.
+
+Do not use the word "neon" in branding or interface copy.
+
+The logo must remain visually distinct from the application's functional controls.
+
+## 1.4 Application layout
+
+The application should have a consistent navigation system.
+
+On the main project library screen, provide:
+
+- A PRISM logo and wordmark.
+- A Projects navigation item.
+- A Shop navigation item.
+- A Settings entry point.
+- A clear New Project action.
+
+Inside the music workstation, navigation should become more compact to maximize the space available for editing audio.
+
+The user must always have a clear way to return to the project library without accidentally losing changes.
+
+Do not place unnecessary navigation elements inside the timeline itself.
+
+The interface must be desktop-first because music production requires horizontal space, but project management should also adapt to smaller screens.
+
+On narrow screens, keep project browsing usable and explain when the full workstation requires a larger display. Do not attempt to squeeze a complex desktop timeline into an unusable mobile layout.
+
+---
+
+# PART 2: THE OPENING SCREEN — YOUR PROJECT LIBRARY
+
+This is one of the most important parts of PRISM.
+
+The opening page must be the user's project library, not the workstation, a marketing website, or an empty dashboard.
+
+## 2.1 Main screen design
+
+Create a dark project library with a heading such as "Your Projects".
+
+The screen should feel like a musician's personal workspace.
+
+At the top, include:
+
+- The PRISM logo and wordmark.
+- Projects navigation.
+- Shop navigation.
+- Settings access.
+- A prominent New Project button.
+
+Below the navigation, show:
+
+- The heading "Your Projects".
+- A short, understated subtitle such as "Pick up where you left off."
+- A search field.
+- Sorting options.
+- Optional filters by release type.
+- A grid of project cards.
+
+Keep the layout spacious without wasting too much room. The user's projects should be the focus.
+
+## 2.2 Project cards
+
+Each release must appear as a visual card.
+
+Every card must contain these elements in this exact hierarchy:
+
+1. A square artwork image.
+2. The working project title directly underneath.
+3. The release type underneath the title.
+4. A track count for multi-track releases, where appropriate.
+
+Example:
+
+[Square project artwork]
+
+Through the Vineyard
+
+EP · 10 tracks
+
+Another example:
+
+[Square project artwork]
+
+Picture Perfect
+
+Single
+
+The artwork should occupy most of the visual area of the card.
+
+Use a consistent square aspect ratio. Crop images appropriately without stretching or distorting them.
+
+The title should be readable and truncate gracefully if it is too long.
+
+The release type must be visually secondary to the title.
+
+Do not put excessive metadata on the cards. The main purpose is to identify a release visually and open it quickly.
+
+## 2.3 Artwork behavior
+
+Allow users to:
+
+- Upload artwork from their computer.
+- Preview the image before confirming it.
+- Replace artwork later.
+- Remove artwork.
+- Use a generated placeholder when artwork is missing.
+
+Support PNG, JPEG, and WebP.
+
+Validate file types and reasonable file sizes. Do not silently accept invalid uploads.
+
+Keep the original artwork file associated with the project. Generate appropriate display thumbnails if useful.
+
+If artwork is removed, replace it with a consistent PRISM placeholder rather than displaying a broken image.
+
+The supplied PRISM logo must not automatically replace every project's artwork. The logo is application branding, whereas cover artwork belongs to individual releases.
+
+## 2.4 Project card interactions
+
+Clicking a project card should open the corresponding release or song according to its release type.
+
+Provide a context menu with:
+
+- Rename.
+- Change artwork.
+- Duplicate project.
+- Export project backup.
+- Delete project.
+
+Use confirmation before deletion.
+
+Do not allow clicking a context-menu option to accidentally open the project underneath it.
+
+Provide subtle hover states and a clear keyboard focus state.
+
+## 2.5 Search and organization
+
+Implement real search against project titles and artist names.
+
+Allow users to sort projects by:
+
+- Recently opened.
+- Recently created.
+- Alphabetical order.
+
+Allow filtering by release type.
+
+These controls must actually change the displayed projects rather than being decorative.
+
+When a user has no projects, show an attractive empty state with the PRISM identity, a brief explanation, and a New Project button.
+
+Do not fill the library with hardcoded example projects as a substitute for working project creation.
+
+Optional demo projects must be clearly marked as examples and removable.
+
+---
+
+# PART 3: THE SHOP TAB
+
+## 3.1 Shop purpose
+
+PRISM will eventually have a Shop for optional expansions and downloadable content.
+
+This may eventually include:
+
+- Sound packs.
+- Drum kits.
+- Sample libraries.
+- Instrument presets.
+- Synthesizer expansions.
+- Effect presets.
+- Additional virtual instruments.
+- Themes and customization.
+- Other production tools.
+
+However, the Shop is not ready for commercial use.
+
+For the initial version, the Shop must be a real, accessible navigation destination with a deliberately simple development placeholder.
+
+## 3.2 Shop screen
+
+When the user selects Shop, open a dedicated Shop page using the same PRISM navigation and dark visual identity.
+
+The page should feature:
+
+The heading:
+
+"PRISM Shop"
+
+The main message, displayed clearly and prominently:
+
+"Still In Development! "
+
+Use the PRISM logo or a subtle abstract spectrum graphic if appropriate.
+
+Keep the design restrained and consistent with the rest of the application.
+
+Do not invent products, prices, shopping carts, payment systems, or fake inventory.
+
+Do not display nonfunctional purchase buttons.
+
+The Shop tab should work immediately, even though the Shop itself is under development.
+
+Users must be able to navigate between Projects and Shop without losing their current project data.
+
+Do not implement payments or paid features at this stage.
+
+---
+
+# PART 4: CREATING A PROJECT
+
+## 4.1 New Project dialog
+
+When the user clicks New Project, open a polished project creation dialog.
+
+Include the following fields:
+
+- Project artwork.
+- Working title.
+- Artist or band name, optional.
+- Release type.
+- Optional description.
+
+Release types must include:
+
+- Single.
+- EP.
+- Album.
+- LP.
+- Other.
+
+When Other is selected, reveal a field for a custom release type.
+
+Provide Create Project and Cancel buttons.
+
+The title and release type are required.
+
+Show clear validation messages if required information is missing.
+
+Do not close the dialog before the project has been created successfully.
+
+Do not create duplicate projects because of repeated clicks.
+
+## 4.2 Release-type behavior
+
+The release type controls the initial navigation.
+
+### Single
+
+A Single is a release containing one song.
+
+When a Single is created:
+
+1. Create the release record.
+2. Create its associated song session.
+3. Persist the release and session.
+4. Open the song workstation immediately.
+
+Do not show a release overview between creation and the workstation.
+
+The Single must still appear in the project library as a release card with artwork, working title, and the Single label.
+
+### EP, Album, LP, and Other
+
+These project types open a release overview.
+
+The release overview acts like a folder containing individual songs.
+
+The user must be able to create an empty release and add songs later.
+
+Do not impose arbitrary track-count limits based on release type.
+
+Every song inside the release must have its own independent workstation session.
+
+The user must be able to open any song from the release overview.
+
+## 4.3 Track creation
+
+Inside a multi-track release, provide an Add Track button.
+
+When selected, allow the user to enter a song title and create a new independent session.
+
+Provide a sensible default title such as "Untitled Track" if the user does not enter one.
+
+Allow:
+
+- Renaming songs.
+- Reordering songs.
+- Duplicating songs.
+- Deleting songs with confirmation.
+- Opening songs in the workstation.
+- Returning to the release overview.
+
+Track numbering must update automatically after reordering.
+
+A song title must remain independent of the release title.
+
+Duplicating a song must create independent session data. Editing the duplicate must never change the original.
+
+Deleting a song must not delete the parent release.
+
+## 4.4 Release overview design
+
+The release overview should display:
+
+- Release artwork.
+- Release title.
+- Artist name.
+- Release type.
+- Track count.
+- Track list.
+- Add Track button.
+- Track reorder controls.
+- Song-specific actions.
+- Release settings.
+- Navigation back to Projects.
+
+Use a clean layout that feels like organizing an album before entering individual sessions.
+
+Each track row should display:
+
+- Track number.
+- Song title.
+- Duration, when available.
+- An indication of whether a session contains saved work, where practical.
+- A clear way to open the workstation.
+- A context menu.
+
+Do not show fake durations.
+
+If a song has no audio or duration information, leave the duration blank or display an appropriate placeholder.
+
+The release overview must reflect actual saved data.
+
+---
+
+# PART 5: DATA MODEL AND PROJECT SAFETY
+
+## 5.1 Separate releases and song sessions
+
+Use separate data entities for release projects and individual song sessions.
+
+A release contains metadata and an ordered collection of song IDs.
+
+A song session contains its own workstation state.
+
+A Single uses the same underlying data model, but its navigation skips the release overview.
+
+## 5.2 Release data
+
+Store:
+
+- Unique release ID.
+- Working title.
+- Artist name.
+- Release type.
+- Custom release type, when applicable.
+- Artwork reference.
+- Description.
+- Creation date.
+- Last-modified date.
+- Last-opened date.
+- Ordered list of song IDs.
+
+## 5.3 Song session data
+
+Store:
+
+- Unique session ID.
+- Parent release ID, if applicable.
+- Song title.
+- Track list.
+- Audio clip metadata.
+- Audio file references.
+- MIDI data.
+- Tempo.
+- Time signature.
+- Track volume.
+- Track pan.
+- Mute and solo states.
+- Effect settings.
+- Mixer routing.
+- Automation data as implemented.
+- Session version.
+
+Use stable unique identifiers rather than project titles.
+
+Ensure that duplicated songs receive new session IDs and independent data.
+
+## 5.4 Persistent saving
+
+Projects must persist across browser refreshes and application restarts.
+
+Use a maintainable persistence architecture.
+
+Use a suitable backend database for structured project metadata where appropriate, and proper file storage for audio and artwork.
+
+IndexedDB can be used for local browser storage where useful.
+
+Do not store large audio recordings as enormous database strings.
+
+Implement:
+
+- Automatic saving.
+- A visible saving status.
+- A saved confirmation after persistence succeeds.
+- Clear error messages if saving fails.
+- Safe handling of missing or invalid data.
+- Confirmation for destructive operations.
+- Project backup export and restore.
+
+Do not report successful saving before it has actually occurred.
+
+If only local storage is supported initially, explain its limitations. Do not claim cloud synchronization unless it exists.
+
+Keep the application usable without requiring paid services unless they are genuinely necessary and I approve them.
+
+---
+
+# PART 6: THE ACTUAL PRISM WORKSTATION
+
+This is the core of the application.
+
+The workstation should take inspiration from the accessible, streamlined production workflows of Cakewalk Next and BandLab.
+
+Create an original interface rather than copying their exact layouts, branding, icons, or proprietary visual design.
+
+The goal is to make PRISM feel like a real music studio that a beginner can learn and an experienced musician can grow into.
+
+The workstation should be a separate working environment from the project library.
+
+When the user opens a song, the interface should focus on making music rather than managing releases.
+
+## 6.1 Workstation layout
+
+Design a desktop-first, full-width workstation.
+
+Use the available screen space intelligently.
+
+The interface should contain these major areas:
+
+1. A compact top application bar.
+2. A transport and playback toolbar.
+3. A track control panel.
+4. A multitrack timeline and arrangement area.
+5. A lower panel for mixer, instruments, effects, or other editing tools.
+6. Contextual settings and menus.
+
+Do not permanently allocate too much screen space to panels that are not being used.
+
+Allow users to resize or collapse major panels where practical.
+
+Maintain a consistent layout when switching between songs.
+
+The timeline should be the visual center of the workstation.
+
+## 6.2 Top application bar
+
+Include:
+
+- A small PRISM logo.
+- A navigation path showing the release and song title where applicable.
+- The current song title.
+- A save status.
+- Access to project settings.
+- A way to return to the release overview or project library.
+
+For a Single, returning should lead back to the project library.
+
+For a song inside an EP or album, provide navigation back to its parent release.
+
+If changes are still saving, do not silently discard them during navigation.
+
+## 6.3 Transport toolbar
+
+Create a dedicated toolbar containing:
+
+- Play.
+- Pause.
+- Stop.
+- Return to start.
+- Record.
+- Loop toggle.
+- Tempo.
+- Time signature.
+- Metronome toggle.
+- Recording or playback status where appropriate.
+
+The controls must be visually distinct and easy to operate.
+
+Provide keyboard shortcuts for common operations where practical.
+
+Do not make a button appear active unless its state is actually active.
+
+Record must not pretend to record if recording has not been implemented.
+
+## 6.4 Timeline and arrangement view
+
+The arrangement view should be the primary editing workspace.
+
+Include:
+
+- A horizontal time ruler.
+- Bar and beat divisions when using musical time.
+- A moving playhead.
+- A scrollable arrangement area.
+- Track lanes.
+- Audio clips.
+- MIDI clips when implemented.
+- Track names.
+- Clip selection states.
+- Horizontal zoom.
+- Vertical scrolling.
+- A visible current playback position.
+
+The user must be able to navigate through longer songs without the interface becoming unusable.
+
+Provide a sensible default zoom and allow the user to zoom in and out.
+
+The playhead must correspond to actual playback time.
+
+Clips must be displayed at positions consistent with their saved timeline positions.
+
+Use grid snapping where appropriate and allow snapping to be enabled or disabled.
+
+Do not allow a clip to visually move without updating its underlying saved position.
+
+## 6.5 Track control panel
+
+Every track should have a dedicated control strip.
+
+Include:
+
+- Track name.
+- Track type or icon.
+- Track color or restrained spectrum accent.
+- Volume control.
+- Pan control.
+- Mute.
+- Solo.
+- Record arm when supported.
+- Input selection when recording is supported.
+- A way to open track-specific settings.
+- A context menu.
+
+The track panel must remain aligned with the corresponding timeline lane while scrolling.
+
+Track volume and pan must affect the actual audio output, not merely change displayed values.
+
+Mute must silence the selected track.
+
+Solo must allow the intended soloed track or tracks to be heard according to standard mixer behavior.
+
+Track renaming must persist.
+
+Support creating, duplicating, reordering, and deleting tracks with appropriate safeguards.
+
+Do not create controls that are purely decorative.
+
+## 6.6 Audio clips
+
+Users should be able to import supported audio files and arrange them in the timeline.
+
+Each audio clip should have:
+
+- A visible waveform where practical.
+- A recognizable clip boundary.
+- Its file or clip name.
+- Its start position.
+- Its duration.
+- A selection state.
+
+Implement:
+
+- Selecting a clip.
+- Moving a clip.
+- Trimming its start and end where supported.
+- Duplicating a clip.
+- Splitting a clip.
+- Deleting a clip.
+- Adjusting clip gain where supported.
+
+A clip's visual position and duration must reflect its actual data.
+
+Do not destroy the original imported audio when trimming a clip. Store nondestructive clip boundaries where possible.
+
+Support dragging imported files into the arrangement when the browser and implementation permit it. Also provide a reliable file picker.
+
+Handle invalid, unsupported, or corrupted audio files with clear errors.
+
+## 6.7 Audio import and playback
+
+Implement real audio playback using an appropriate browser audio engine.
+
+Use the Web Audio API for audio decoding, routing, playback, and supported processing.
+
+Where appropriate, use AudioWorklet for custom real-time audio processing.
+
+Support common formats such as WAV and MP3, subject to browser decoding support.
+
+When audio is imported:
+
+1. Validate the file.
+2. Load or decode it.
+3. Store it safely.
+4. Create an audio clip.
+5. Display its waveform when available.
+6. Allow playback from its timeline position.
+
+Playback must respect clip placement, track volume, pan, mute, and solo.
+
+Multiple clips should play together when their timeline positions overlap.
+
+The playhead must stay synchronized with the audio.
+
+Avoid creating a separate independent playback timer for every track. Use a shared audio timeline and appropriate scheduling.
+
+Handle playback starting, stopping, seeking, and resource cleanup reliably.
+
+Do not claim to support professional low-latency performance until it has been validated.
+
+## 6.8 Recording
+
+Recording should be added after the initial import and playback engine is stable.
+
+Where browser support permits, allow the user to:
+
+- Request microphone access.
+- Select an available input device.
+- Monitor input levels.
+- Arm a track for recording.
+- Start and stop recording.
+- Record a take.
+- Place the resulting audio on the timeline.
+- Play the recording back.
+- Save it as part of the session.
+
+Use clear permission and device error messages.
+
+Recording must respect browser security requirements and user permissions.
+
+Do not pretend to support every external audio interface or professional recording configuration.
+
+Test recording on the actual supported environment before advertising it as functional.
+
+## 6.9 MIDI and instruments
+
+After basic audio playback is reliable, add MIDI composition.
+
+Create a piano roll with:
+
+- A piano keyboard.
+- A time grid.
+- Note blocks.
+- Note selection.
+- Note creation and deletion.
+- Note movement.
+- Note length adjustment.
+- Velocity editing.
+- Musical grid snapping.
+- Zoom and scroll.
+
+Implement at least one actual built-in synthesizer so MIDI notes produce sound.
+
+Do not build a piano roll that only displays colored rectangles without generating audio.
+
+Save MIDI notes and instrument settings with the song session.
+
+Make the architecture expandable to additional instruments and sound libraries.
+
+## 6.10 Mixer
+
+Create a dedicated mixer panel that can be opened and resized.
+
+Include:
+
+- A channel strip for each track.
+- Volume faders.
+- Pan controls.
+- Mute and solo.
+- Level meters.
+- Track names.
+- A master channel.
+- A master output level meter.
+
+Faders must control the real audio routing.
+
+Meters should reflect actual audio levels rather than simulated animations.
+
+Use an appropriate signal routing architecture that avoids duplicated connections, feedback loops, and unnecessary resource consumption.
+
+The master channel must combine the audible tracks and provide the final output.
+
+## 6.11 Audio effects
+
+Build effects incrementally.
+
+Start with effects that can be implemented reliably using the available audio engine:
+
+- Gain.
+- Pan.
+- Basic EQ.
+- Reverb.
+- Delay.
+- Compression.
+
+Allow supported effects to be added to a track or channel.
+
+Provide a way to adjust effect parameters.
+
+Save effect settings with the session.
+
+The effect chain must affect the actual sound.
+
+Allow users to bypass supported effects.
+
+Do not advertise VST3, AU, or other native plugin formats as supported merely because an effects panel exists. Native plugin support requires additional architecture and may require a desktop application.
+
+## 6.12 Automation
+
+Design the architecture to support automation.
+
+Future automation lanes should allow users to control supported parameters over time, such as:
+
+- Volume.
+- Pan.
+- Effect parameters.
+
+When implemented, automation points must be editable and saved.
+
+Automation must affect playback and mix output.
+
+Do not display fake automation curves that have no effect on audio.
+
+## 6.13 Lower editing panel
+
+Provide a lower panel that can switch between available views such as:
+
+- Mixer.
+- Piano roll.
+- Track or clip properties.
+- Effects.
+- Instrument controls.
+
+Use tabs or another clear navigation mechanism.
+
+Allow the lower panel to be collapsed to maximize arrangement space.
+
+Only show fully implemented tools as active.
+
+If a tool is not yet available, do not imply that it is functional.
+
+---
+
+# PART 7: MUSIC PRODUCTION WORKFLOW
+
+## 7.1 Intended workflow
+
+The main production workflow should be:
+
+1. Open PRISM.
+2. Select an existing release or create a project.
+3. For a Single, enter the workstation immediately.
+4. For an EP, Album, LP, or Other release, enter the release overview.
+5. Add or select a song.
+6. Open that song's workstation.
+7. Import or record audio.
+8. Arrange clips and tracks.
+9. Add MIDI instruments and effects as those features become available.
+10. Mix the song.
+11. Export the finished audio when export functionality is implemented.
+12. Return to the release overview or library.
+
+The user must be able to move between project management and production without losing saved work.
+
+## 7.2 Keyboard shortcuts
+
+Provide sensible shortcuts for common actions, such as:
+
+- Space: play or stop.
+- Ctrl+Z: undo.
+- Ctrl+Shift+Z or Ctrl+Y: redo, depending on platform conventions.
+- Ctrl+S: save.
+- Delete or Backspace: delete a selected clip or item when appropriate.
+- Ctrl+D: duplicate a selected item when appropriate.
+
+Avoid overriding browser shortcuts in a way that prevents normal navigation or causes unexpected behavior.
+
+Display shortcuts in tooltips or menus where useful.
+
+## 7.3 Undo and redo
+
+Implement a reliable undo and redo system for supported editing actions.
+
+Initially support actions such as:
+
+- Moving clips.
+- Trimming clips.
+- Creating and deleting clips.
+- Renaming tracks.
+- Changing supported settings.
+- Moving or reordering tracks.
+
+Undo and redo must restore the actual data, not just the visual appearance.
+
+Do not claim that an action is undoable if it is not included in the history system.
+
+---
+
+# PART 8: SAVING, BACKUPS, AND EXPORT
+
+## 8.1 Session saving
+
+Save session changes automatically where practical.
+
+Show a clear save indicator.
+
+If saving fails, report the problem and preserve unsaved state where possible.
+
+Do not block every editing operation while saving, but prevent destructive navigation when unsaved data cannot be safely preserved.
+
+## 8.2 Project backups
+
+Provide a project backup system.
+
+Where practical, package:
+
+- Release metadata.
+- Song session metadata.
+- Audio files or references required to restore the project.
+- Artwork.
+- MIDI data.
+- Supported effect settings.
+
+The backup must be restorable.
+
+Do not export an archive that contains only metadata while claiming it includes the complete project.
+
+Clearly distinguish complete backups from metadata-only exports.
+
+## 8.3 Audio export
+
+Implement audio export after playback and mixing work reliably.
+
+At minimum, provide a WAV export of the actual master mix.
+
+When supported, provide MP3 export.
+
+Include:
+
+- Export file name.
+- Output format.
+- Sample rate where configurable.
+- Bit depth where applicable.
+- A progress indicator for longer renders.
+- Clear success and error messages.
+
+The exported audio must contain the actual audible mix, including supported track levels, panning, and effects.
+
+Do not create silent files or placeholder downloads and call them completed exports.
+
+For multi-track releases, eventually allow users to export individual songs and a collection of finished tracks. Do not assume that all songs should be concatenated into one continuous audio file.
+
+---
+
+# PART 9: SETTINGS AND ACCESSIBILITY
+
+Create a settings screen consistent with the PRISM design.
+
+Add settings as they become useful, such as:
+
+- Theme and interface preferences.
+- Default project settings.
+- Audio device preferences when supported.
+- Default sample rate when configurable.
+- Metronome settings.
+- Keyboard shortcuts.
+- Storage information where practical.
+
+Do not add fake settings.
+
+Use readable text, visible keyboard focus, appropriate contrast, and accessible labels for controls.
+
+Important actions must not rely on color alone.
+
+Provide tooltips for unfamiliar controls.
+
+Make the application usable at common desktop resolutions.
+
+Avoid excessively small text or controls that are difficult to click.
+
+---
+
+# PART 10: SECURITY AND TECHNICAL ARCHITECTURE
+
+Choose a maintainable architecture appropriate for a Replit-hosted web application.
+
+Use established libraries where they reduce risk and development effort.
+
+Separate:
+
+- User interface.
+- Project library.
+- Release management.
+- Session management.
+- Audio engine.
+- Media handling.
+- Persistence.
+- Audio rendering and export.
+- Settings.
+
+Use stable identifiers and versioned data structures.
+
+Validate file uploads and handle failures.
+
+If accounts or cloud storage are implemented, enforce authorization on the server. Never expose secret keys or private credentials in client-side code.
+
+Do not assume that local browser files are automatically accessible from another device.
+
+Clearly distinguish local persistence from cloud persistence.
+
+Do not add complex paid infrastructure without explaining the cost and asking for approval where needed.
+
+Prioritize a reliable single-user application before introducing collaboration, payments, or complex cloud services.
+
+---
+
+# PART 11: TESTING AND ACCEPTANCE CRITERIA
+
+Test actual behavior, not just whether the interface renders.
+
+## Project library tests
+
+- Create a project.
+- Upload artwork.
+- Rename a project.
+- Search for a project.
+- Change sorting and filtering.
+- Duplicate a project.
+- Delete a project after confirmation.
+- Refresh the browser and verify saved data persists.
+
+## Navigation tests
+
+- Create a Single and verify the workstation opens immediately.
+- Create an EP and verify the release overview opens.
+- Add several songs.
+- Open different songs.
+- Return to the release overview.
+- Verify that each song retains its own independent data.
+- Verify that the Shop opens correctly and the development message is visible.
+
+## Workstation tests
+
+- Import an audio file.
+- Verify that the clip appears in the correct position.
+- Play and stop the audio.
+- Verify that the playhead tracks playback.
+- Move a clip and verify its saved position changes.
+- Adjust track volume and pan and verify that the sound changes.
+- Test mute and solo.
+- Save the session, refresh the application, and reopen it.
+- Verify that supported changes persist.
+- Test supported undo and redo.
+- Verify error handling for invalid audio files.
+
+## Recording and export tests
+
+Once implemented:
+
+- Record a test take with user permission.
+- Verify the recorded audio plays back.
+- Export a WAV file.
+- Open the exported file and verify that it contains the actual mix.
+- Verify that export errors are reported honestly.
+
+## Quality requirements
+
+- Fix build errors.
+- Fix runtime errors.
+- Avoid broken navigation.
+- Avoid losing saved projects during updates.
+- Avoid duplicated audio connections.
+- Avoid controls that look active but do nothing.
+- Do not claim a test passed unless it was actually run.
+
+If a test cannot be performed in the available environment, identify the limitation rather than fabricating a result.
+
+---
+
+# PART 12: DEVELOPMENT PLAN
+
+Build PRISM in the following phases.
+
+## Phase 1: Branding and shell
+
+- Incorporate the official logo.
+- Establish the dark PRISM theme.
+- Build application navigation.
+- Build the Projects screen.
+- Build the Shop screen with the exact message "Still In Development! ".
+
+## Phase 2: Project library
+
+- Build the New Project dialog.
+- Implement artwork uploads.
+- Implement release types.
+- Implement project cards.
+- Implement search, sorting, filtering, and project actions.
+
+## Phase 3: Release and session management
+
+- Implement the separate release and song entities.
+- Implement the Single direct-to-workstation behavior.
+- Implement multi-track release overviews.
+- Implement song creation, renaming, duplication, reordering, and deletion.
+- Implement persistence and backups.
+
+## Phase 4: Initial workstation
+
+- Build the arrangement view.
+- Build the track control panel.
+- Implement audio import and playback.
+- Implement clip positioning and basic editing.
+- Implement saving and session restoration.
+
+## Phase 5: Mixing and recording
+
+- Implement real track volume and pan.
+- Implement mute, solo, and level meters.
+- Add recording where supported.
+- Add a functional master output and mixer.
+
+## Phase 6: Production tools
+
+- Add MIDI.
+- Add a built-in synthesizer.
+- Add effects.
+- Add automation.
+- Add reliable WAV export and additional formats where supported.
+
+## Phase 7: Refinement
+
+- Improve keyboard navigation.
+- Improve responsiveness and accessibility.
+- Test large projects and longer sessions.
+- Improve recovery from errors.
+- Optimize audio and UI performance.
+- Prepare the architecture for future sharing and desktop support.
+
+Each phase must leave the application in a usable state.
+
+Do not rewrite working features unnecessarily when adding new ones.
+
+Do not spend time implementing advanced effects while basic project saving or audio playback remains broken.
+
+# FINAL INSTRUCTIONS
+
+Begin building PRISM now.
+
+First inspect the available development environment and incorporate the supplied logo. Then implement the application shell, project library, Shop tab, project creation flow, release overview, and persistent project management.
+
+Once these features work end to end, proceed into the actual audio workstation.
+
+Prioritize functional, tested software over the number of features displayed on screen.
+
+If a requirement is too large to complete in one pass, implement the most important working subset, preserve a clear path to the full feature, and explain what remains.
+
+Do not stop at a plan, mockup, or code snippet. Build the application, run it, test it, and report the verified results.
+
+PRISM should be a coherent product from the beginning: the same brand, the same design language, the same project model, and a real path from creating a release to producing a finished song.

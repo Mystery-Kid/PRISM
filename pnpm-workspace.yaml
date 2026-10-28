@@ -70,6 +70,8 @@ autoInstallPeers: false
 
 onlyBuiltDependencies:
   - '@swc/core'
+  # Electron's postinstall fetches the signed desktop runtime required by PRISM.
+  - electron
   - esbuild
   - msw
   - unrs-resolver
