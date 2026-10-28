@@ -7,10 +7,11 @@ import type {
   Track,
 } from "@shared/types";
 import captureProcessorUrl from "./capture-processor.js?url";
-import { beatToSeconds, parseTimeSignature, secondsPerBeat } from "./time";
+import { parseTimeSignature, secondsPerBeat } from "./time";
 import { getClipWindow, getSessionDuration } from "./timeline";
 import { createMasterGraph, createTrackGraph, readMeter, type MasterGraph, type TrackGraph } from "./graph";
 import { renderSessionWav } from "./render";
+import { createMidiEnvelopePlan, getMidiPlaybackWindow, midiPitchToFrequency } from "./midi";
 
 export type AudioDevice = {
   id: string;
@@ -615,44 +616,40 @@ export class AudioEngine {
     contextFrom: number,
   ): void {
     if (!this.context || !track.instrument) return;
-    const noteStart = beatToSeconds(note.startBeat, session.tempo, session.timeSignature);
-    const noteEnd = beatToSeconds(
-      note.startBeat + note.durationBeats,
+    const playback = getMidiPlaybackWindow(
+      note,
       session.tempo,
       session.timeSignature,
+      timelineFrom,
+      timelineTo,
+      this.anchorTimeline,
+      session.loopRange,
     );
-    const loop = session.loopRange?.enabled ? session.loopRange : null;
-    const startsInSegment = noteStart >= timelineFrom && noteStart < timelineTo;
-    const resumedAtNote = noteStart < timelineFrom && noteEnd > timelineFrom &&
-      (Math.abs(timelineFrom - this.anchorTimeline) < 0.000001 ||
-        (loop && Math.abs(timelineFrom - loop.startSeconds) < 0.000001));
-    if (!startsInSegment && !resumedAtNote) return;
-    const start = startsInSegment ? noteStart : timelineFrom;
-    const end = Math.min(noteEnd, loop?.endSeconds ?? noteEnd);
-    if (end <= start) return;
+    if (!playback) return;
     const oscillator = this.context.createOscillator() as ScheduledNode;
     const oscillatorNode = oscillator as OscillatorNode;
     const envelope = this.context.createGain();
     const instrument = track.instrument;
     oscillatorNode.type = instrument.waveform;
-    oscillatorNode.frequency.value = 440 * Math.pow(2, (note.pitch - 69) / 12);
-    const when = contextFrom + start - timelineFrom;
-    const endAt = contextFrom + end - timelineFrom;
-    const attack = Math.min(instrument.attack, Math.max(0.005, endAt - when));
-    const release = Math.min(instrument.release, Math.max(0.005, endAt - when));
-    const sustainLevel = Math.max(0.01, Math.min(1, instrument.sustain)) * Math.max(0, Math.min(1, note.velocity / 127));
-    if (resumedAtNote) {
-      envelope.gain.setValueAtTime(sustainLevel, when);
-    } else {
-      envelope.gain.setValueAtTime(0, when);
-      envelope.gain.linearRampToValueAtTime(1, when + attack);
-      envelope.gain.linearRampToValueAtTime(
-        sustainLevel,
-        Math.min(endAt, when + attack + instrument.decay),
-      );
+    oscillatorNode.frequency.value = midiPitchToFrequency(note.pitch);
+    const when = contextFrom + playback.startSeconds - timelineFrom;
+    const endAt = contextFrom + playback.endSeconds - timelineFrom;
+    const noteDuration = playback.endSeconds - playback.startSeconds + playback.offsetSeconds;
+    const envelopePlan = createMidiEnvelopePlan(
+      note,
+      instrument,
+      noteDuration,
+      playback.offsetSeconds,
+    );
+    envelope.gain.setValueAtTime(envelopePlan.initialValue, when);
+    for (const event of envelopePlan.events) {
+      const eventTime = when + event.timeSeconds - playback.offsetSeconds;
+      if (event.curve === "set") {
+        envelope.gain.setValueAtTime(event.value, eventTime);
+      } else {
+        envelope.gain.linearRampToValueAtTime(event.value, eventTime);
+      }
     }
-    envelope.gain.setValueAtTime(sustainLevel, Math.max(when, endAt - release));
-    envelope.gain.linearRampToValueAtTime(0, endAt);
     oscillator.connect(envelope);
     envelope.connect(graph.input);
     oscillator.__prismCleanup = () => {
@@ -752,7 +749,8 @@ function needsReschedule(previous: SongSession, next: SongSession): boolean {
       track.id !== updated.id ||
       track.type !== updated.type ||
       track.clips !== updated.clips ||
-      track.notes !== updated.notes
+      track.notes !== updated.notes ||
+      JSON.stringify(track.instrument) !== JSON.stringify(updated.instrument)
     );
   });
 }

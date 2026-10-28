@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>PRISM Offline MIDI Render Test</title>
+  </head>
+  <body>
+    <pre id="result">RUNNING</pre>
+    <script type="module">
+      import { renderSessionWav } from "./render.ts";
+
+      const result = document.getElementById("result");
+      try {
+        const session = {
+          id: "midi-render-test",
+          releaseId: "release-test",
+          title: "MIDI Render Test",
+          tempo: 120,
+          timeSignature: "4/4",
+          loopRange: null,
+          metronomeEnabled: false,
+          masterVolume: 1,
+          masterEffects: [],
+          updatedAt: new Date(0).toISOString(),
+          tracks: [{
+            id: "instrument-test",
+            name: "Test Synth",
+            type: "instrument",
+            color: "#7c9ef2",
+            volume: 0.8,
+            pan: 0,
+            muted: false,
+            solo: false,
+            recordArmed: false,
+            clips: [],
+            notes: [
+              { id: "note-a", pitch: 60, startBeat: 0, durationBeats: 1, velocity: 48 },
+              { id: "note-b", pitch: 69, startBeat: 1, durationBeats: 1, velocity: 116 },
+            ],
+            instrument: {
+              waveform: "triangle",
+              attack: 0.01,
+              decay: 0.12,
+              sustain: 0.62,
+              release: 0.18,
+            },
+            effects: [],
+          }],
+        };
+
+        const wav = await renderSessionWav(session, async () => {
+          throw new Error("The MIDI-only render must not request audio assets.");
+        });
+        const view = new DataView(wav.buffer, wav.byteOffset, wav.byteLength);
+        if (
+          view.getUint32(0, false) !== 0x52494646 ||
+          view.getUint32(8, false) !== 0x57415645 ||
+          view.getUint32(24, true) !== 48_000 ||
+          view.getUint16(22, true) !== 2 ||
+          view.getUint16(34, true) !== 16
+        ) {
+          throw new Error("The render did not produce a 48 kHz, 16-bit stereo WAV.");
+        }
+
+        let peak = 0;
+        for (let offset = 44; offset + 1 < wav.byteLength; offset += 2) {
+          peak = Math.max(peak, Math.abs(view.getInt16(offset, true)));
+        }
+        if (peak < 500) throw new Error(`The rendered MIDI output is silent (peak ${peak}).`);
+        result.textContent = `PASS: rendered MIDI WAV has ${wav.byteLength} bytes; peak ${peak}.`;
+        document.body.dataset.testResult = "pass";
+      } catch (error) {
+        result.textContent = `FAIL: ${error instanceof Error ? error.message : String(error)}`;
+        document.body.dataset.testResult = "fail";
+      }
+    </script>
+  </body>
+</html>

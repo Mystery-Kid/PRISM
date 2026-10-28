@@ -3,6 +3,7 @@ import { createMasterGraph, createTrackGraph } from "./graph";
 import { beatToSeconds } from "./time";
 import { encodeAudioBufferWav } from "./wav";
 import { getClipWindow, getSessionDuration } from "./timeline";
+import { createMidiEnvelopePlan, midiPitchToFrequency } from "./midi";
 
 const exportSampleRate = 48_000;
 const maximumExportSeconds = 10 * 60;
@@ -108,21 +109,20 @@ function scheduleOfflineNote(
     session.tempo,
     session.timeSignature,
   );
+  if (end <= start) return;
   const oscillator = context.createOscillator();
   const envelope = context.createGain();
   oscillator.type = track.instrument.waveform;
-  oscillator.frequency.value = 440 * Math.pow(2, (note.pitch - 69) / 12);
-  const attack = Math.min(track.instrument.attack, Math.max(0.005, end - start));
-  const release = Math.min(track.instrument.release, Math.max(0.005, end - start));
-  const sustain = Math.max(0.01, Math.min(1, track.instrument.sustain)) * note.velocity / 127;
-  envelope.gain.setValueAtTime(0, start);
-  envelope.gain.linearRampToValueAtTime(1, start + attack);
-  envelope.gain.linearRampToValueAtTime(
-    sustain,
-    Math.min(end, start + attack + track.instrument.decay),
-  );
-  envelope.gain.setValueAtTime(sustain, Math.max(start, end - release));
-  envelope.gain.linearRampToValueAtTime(0, end);
+  oscillator.frequency.value = midiPitchToFrequency(note.pitch);
+  const envelopePlan = createMidiEnvelopePlan(note, track.instrument, end - start);
+  envelope.gain.setValueAtTime(envelopePlan.initialValue, start);
+  for (const event of envelopePlan.events) {
+    if (event.curve === "set") {
+      envelope.gain.setValueAtTime(event.value, start + event.timeSeconds);
+    } else {
+      envelope.gain.linearRampToValueAtTime(event.value, start + event.timeSeconds);
+    }
+  }
   oscillator.connect(envelope);
   envelope.connect(destination);
   oscillator.start(start);

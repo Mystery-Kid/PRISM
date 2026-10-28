@@ -3,9 +3,18 @@ import {
   AudioLines, Circle, CircleStop, Download, Headphones, Music2, Pause, Play, Plus,
   Redo2, Save, SkipBack, SlidersHorizontal, Sparkles, Trash2, Undo2, Volume2, VolumeX, X,
 } from "lucide-react";
-import type { AudioClip, EffectState, EffectType, MidiNote, SongSession, Track } from "@shared/types";
+import type {
+  AudioClip,
+  EffectState,
+  EffectType,
+  InstrumentState,
+  MidiNote,
+  SongSession,
+  Track,
+} from "@shared/types";
 import { AudioEngine, type AudioDevice, type AudioEngineSnapshot } from "../audio/AudioEngine";
 import { secondsPerBeat } from "../audio/time";
+import { getPianoNoteDragUpdate, type PianoNoteDragState } from "./piano-roll";
 import prismLogo from "../assets/prism-logo.png";
 
 type WorkstationProps = {
@@ -244,6 +253,24 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       ...track, notes: track.notes.map((note) => note.id === noteId ? { ...note, ...update } : note),
     } : track),
   }));
+  const updateInstrumentParameter = (
+    parameter: Exclude<keyof InstrumentState, "waveform">,
+    value: number,
+  ) => {
+    if (!selectedInstrument?.instrument) return;
+    const bounds = {
+      attack: [0.001, 4],
+      decay: [0.001, 4],
+      sustain: [0, 1],
+      release: [0.005, 4],
+    }[parameter];
+    updateTrack(selectedInstrument.id, {
+      instrument: {
+        ...selectedInstrument.instrument,
+        [parameter]: clamp(value, bounds[0], bounds[1]),
+      },
+    });
+  };
   const safe = async (task: () => Promise<void>) => {
     setEngineError("");
     try { await task(); } catch (cause) {
@@ -579,6 +606,10 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       {panel === "piano" && <div className="piano-panel">
         <div className="piano-tools">
           <label>Instrument<select data-testid="select-oscillator" value={selectedInstrument?.instrument?.waveform ?? "triangle"} onChange={(event) => selectedInstrument?.instrument && updateTrack(selectedInstrument.id, { instrument: { ...selectedInstrument.instrument, waveform: event.target.value as OscillatorType } })}>{["sine", "triangle", "square", "sawtooth"].map((wave) => <option key={wave}>{wave}</option>)}</select></label>
+          <label>Attack<input data-testid="input-instrument-attack" type="number" min="0.001" max="4" step="0.001" value={selectedInstrument?.instrument?.attack ?? 0.01} onChange={(event) => updateInstrumentParameter("attack", Number(event.target.value))} /></label>
+          <label>Decay<input data-testid="input-instrument-decay" type="number" min="0.001" max="4" step="0.001" value={selectedInstrument?.instrument?.decay ?? 0.12} onChange={(event) => updateInstrumentParameter("decay", Number(event.target.value))} /></label>
+          <label>Sustain<input data-testid="input-instrument-sustain" type="number" min="0" max="1" step="0.01" value={selectedInstrument?.instrument?.sustain ?? 0.65} onChange={(event) => updateInstrumentParameter("sustain", Number(event.target.value))} /></label>
+          <label>Release<input data-testid="input-instrument-release" type="number" min="0.005" max="4" step="0.005" value={selectedInstrument?.instrument?.release ?? 0.18} onChange={(event) => updateInstrumentParameter("release", Number(event.target.value))} /></label>
           <button className="button button-subtle" data-testid="button-add-midi-note" onClick={() => {
             if (!selectedInstrument) { setNotice("Select or add an instrument track to write MIDI."); return; }
             const note: MidiNote = { id: crypto.randomUUID(), pitch: 60, startBeat: Math.floor(snapshot.position / beatSeconds), durationBeats: 1, velocity: 92 };
@@ -692,24 +723,42 @@ function ClipBlock({ clip, selected, pps, snap, snapStep, onSelect, onUpdate, on
 function PianoNote({ note, selected, beatWidth, snap, onSelect, onChange }: {
   note: MidiNote; selected: boolean; beatWidth: number; snap: boolean; onSelect: () => void; onChange: (update: Partial<MidiNote>) => void;
 }) {
-  const drag = useRef<{ x: number; start: number; duration: number; resize: boolean } | null>(null);
-  const [offset, setOffset] = useState<{ start: number; duration: number } | null>(null);
-  const start = offset?.start ?? note.startBeat; const duration = offset?.duration ?? note.durationBeats;
-  return <div className={`piano-note ${selected ? "selected" : ""}`} data-testid={`piano-note-${note.id}`} style={{ left: `${start * beatWidth}px`, width: `${Math.max(14, duration * beatWidth)}px`, top: `${(84 - note.pitch) * 15}px` }} onPointerDown={(event) => {
+  const drag = useRef<PianoNoteDragState | null>(null);
+  const [offset, setOffset] = useState<{ startBeat: number; durationBeats: number; pitch: number } | null>(null);
+  const start = offset?.startBeat ?? note.startBeat;
+  const duration = offset?.durationBeats ?? note.durationBeats;
+  const pitch = offset?.pitch ?? note.pitch;
+  return <div className={`piano-note ${selected ? "selected" : ""}`} data-testid={`piano-note-${note.id}`} style={{ left: `${start * beatWidth}px`, width: `${Math.max(14, duration * beatWidth)}px`, top: `${(84 - pitch) * 15}px` }} onPointerDown={(event) => {
     event.stopPropagation(); event.preventDefault(); onSelect();
-    drag.current = { x: event.clientX, start: note.startBeat, duration: note.durationBeats, resize: (event.target as HTMLElement).classList.contains("note-resize") };
+    drag.current = {
+      pointerStartX: event.clientX,
+      pointerStartY: event.clientY,
+      startBeat: note.startBeat,
+      durationBeats: note.durationBeats,
+      pitch: note.pitch,
+      resize: (event.target as HTMLElement).classList.contains("note-resize"),
+    };
     event.currentTarget.setPointerCapture(event.pointerId);
   }} onPointerMove={(event) => {
     if (!drag.current) return;
-    const d = (event.clientX - drag.current.x) / beatWidth;
-    const q = (v: number) => snap ? Math.round(v * 4) / 4 : v;
-    setOffset(drag.current.resize
-      ? { start: drag.current.start, duration: Math.max(.25, q(drag.current.duration + d)) }
-      : { start: Math.max(0, q(drag.current.start + d)), duration: drag.current.duration });
+    setOffset(getPianoNoteDragUpdate(
+      drag.current,
+      event.clientX,
+      event.clientY,
+      beatWidth,
+      snap,
+    ));
   }} onPointerUp={() => {
-    if (offset) onChange({ startBeat: offset.start, durationBeats: offset.duration });
+    if (offset) onChange({
+      startBeat: offset.startBeat,
+      durationBeats: offset.durationBeats,
+      pitch: offset.pitch,
+    });
     setOffset(null); drag.current = null;
-  }}><span>{pitchName(note.pitch)}</span><i className="note-resize" /></div>;
+  }} onPointerCancel={() => {
+    setOffset(null);
+    drag.current = null;
+  }}><span>{pitchName(pitch)}</span><i className="note-resize" /></div>;
 }
 
 function MeterBar({ meter, id }: { meter?: Meter; id: string }) {
