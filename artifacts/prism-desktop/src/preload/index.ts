@@ -34,8 +34,18 @@ const bridge: AppBridge = {
   chooseArtwork: (releaseId) =>
     ipcRenderer.invoke("prism:artwork:choose", releaseId),
   selectArtwork: () => ipcRenderer.invoke("prism:artwork:select"),
-  importAudio: (sessionId) =>
-    ipcRenderer.invoke("prism:audio:import", sessionId),
+  importAudio: (sessionId, trackId) =>
+    ipcRenderer.invoke("prism:audio:import", sessionId, trackId),
+  startRecording: (input) => ipcRenderer.invoke("prism:audio:recording:start", input),
+  appendRecordingChunk: (recordingId, samples) =>
+    ipcRenderer.invoke("prism:audio:recording:append", recordingId, samples),
+  finishRecording: (input) =>
+    ipcRenderer.invoke("prism:audio:recording:finish", input),
+  preserveRecording: (recordingId) =>
+    ipcRenderer.invoke("prism:audio:recording:preserve", recordingId),
+  cancelRecording: (recordingId) =>
+    ipcRenderer.invoke("prism:audio:recording:cancel", recordingId),
+  exportWav: (input) => ipcRenderer.invoke("prism:audio:export-wav", input),
   assetUrl: (assetId) => `prism-media://local/${encodeURIComponent(assetId)}`,
   openDataFolder: () => ipcRenderer.invoke("prism:app:open-data-folder"),
   onCloseRequested: (callback) => {
