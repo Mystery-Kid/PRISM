@@ -33,6 +33,9 @@ jobs:
       - name: Typecheck PRISM
         run: pnpm --filter @workspace/prism-desktop run typecheck
 
+      - name: Run PRISM audio and persistence tests
+        run: pnpm --filter @workspace/prism-desktop run test
+
       - name: Build Windows installer
         run: pnpm --filter @workspace/prism-desktop run package:win
 

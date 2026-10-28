@@ -25,19 +25,62 @@ export type AudioClip = {
   assetId: string;
   name: string;
   durationSeconds: number;
+  sourceDurationSeconds: number;
   startSeconds: number;
+  sourceStartSeconds: number;
   gain: number;
+  fadeInSeconds: number;
+  fadeOutSeconds: number;
   waveform: number[];
+};
+
+export type TrackType = "audio" | "instrument";
+
+export type MidiNote = {
+  id: string;
+  pitch: number;
+  startBeat: number;
+  durationBeats: number;
+  velocity: number;
+};
+
+export type InstrumentState = {
+  waveform: OscillatorType;
+  attack: number;
+  decay: number;
+  sustain: number;
+  release: number;
+};
+
+export type EffectType = "equalizer" | "reverb" | "delay" | "compressor";
+
+export type EffectState = {
+  id: string;
+  type: EffectType;
+  enabled: boolean;
+  parameters: Record<string, number>;
+};
+
+export type LoopRange = {
+  enabled: boolean;
+  startSeconds: number;
+  endSeconds: number;
 };
 
 export type Track = {
   id: string;
   name: string;
+  type: TrackType;
+  color: string;
   volume: number;
   pan: number;
   muted: boolean;
   solo: boolean;
+  recordArmed: boolean;
   clips: AudioClip[];
+  notes: MidiNote[];
+  instrument: InstrumentState | null;
+  effects: EffectState[];
 };
 
 export type SongSession = {
@@ -46,8 +89,36 @@ export type SongSession = {
   title: string;
   tempo: number;
   timeSignature: string;
+  loopRange: LoopRange | null;
+  metronomeEnabled: boolean;
+  masterVolume: number;
+  masterEffects: EffectState[];
   tracks: Track[];
   updatedAt: string;
+};
+
+export type RecordingStart = {
+  sessionId: string;
+  trackId: string;
+  sampleRate: number;
+  channels: 1 | 2;
+  startSeconds: number;
+};
+
+export type RecordingFinish = {
+  recordingId: string;
+  waveform: number[];
+};
+
+export type RecordedTake = {
+  clip: AudioClip;
+  assetUrl: string;
+  trackId: string;
+};
+
+export type ExportWavInput = {
+  fileName: string;
+  audioData: Uint8Array;
 };
 
 export type CreateReleaseInput = {
@@ -87,7 +158,16 @@ export type AppBridge = {
   saveSession(session: SongSession): Promise<SongSession>;
   chooseArtwork(releaseId: string): Promise<Release | null>;
   selectArtwork(): Promise<ProjectAsset | null>;
-  importAudio(sessionId: string): Promise<{ clip: AudioClip; assetUrl: string } | null>;
+  importAudio(
+    sessionId: string,
+    trackId?: string,
+  ): Promise<{ clip: AudioClip; assetUrl: string } | null>;
+  startRecording(input: RecordingStart): Promise<string>;
+  appendRecordingChunk(recordingId: string, samples: Float32Array): Promise<void>;
+  finishRecording(input: RecordingFinish): Promise<RecordedTake>;
+  preserveRecording(recordingId: string): Promise<void>;
+  cancelRecording(recordingId: string): Promise<void>;
+  exportWav(input: ExportWavInput): Promise<boolean>;
   assetUrl(assetId: string): string;
   openDataFolder(): Promise<void>;
   onCloseRequested(callback: () => void): () => void;
