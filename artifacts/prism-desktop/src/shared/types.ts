@@ -170,6 +170,8 @@ export type AppBridge = {
   exportWav(input: ExportWavInput): Promise<boolean>;
   assetUrl(assetId: string): string;
   openDataFolder(): Promise<void>;
+  backupLibrary(): Promise<string | null>;
+  restoreLibrary(): Promise<boolean>;
   onCloseRequested(callback: () => void): () => void;
   finishClose(): Promise<void>;
 };

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { migrateSongSession } from "./migrations";
+import { migrateProjectLibrary, migrateSongSession } from "./migrations";
 
 test("version-one song shape migrates while preserving clips and assets", () => {
   const migrated = migrateSongSession({
@@ -36,4 +36,57 @@ test("version-one song shape migrates while preserving clips and assets", () => 
   assert.deepEqual(migrated.tracks[0].notes, []);
   assert.equal(migrated.masterVolume, 1);
   assert.equal(migrated.loopRange, null);
+});
+
+test("version-one project library upgrades to the current schema", () => {
+  const migrated = migrateProjectLibrary({
+    version: 1,
+    releases: [],
+    sessions: [],
+  });
+
+  assert.deepEqual(migrated, {
+    version: 3,
+    releases: [],
+    sessions: [],
+    assets: [],
+  });
+});
+
+test("project migration rejects media paths outside the managed asset folder", () => {
+  assert.throws(() => migrateProjectLibrary({
+    version: 3,
+    releases: [],
+    sessions: [],
+    assets: [{
+      id: "asset-1",
+      fileName: "audio.wav",
+      mimeType: "audio/wav",
+      storageName: "../../outside.wav",
+    }],
+  }), /unsafe or damaged storage path/);
+});
+
+test("project migration preserves the saved order of songs in an album", () => {
+  const migrated = migrateProjectLibrary({
+    version: 2,
+    releases: [{
+      id: "release-1",
+      title: "Album",
+      releaseType: "Album",
+      songIds: ["song-b", "song-a"],
+    }],
+    sessions: ["song-a", "song-b"].map((id) => ({
+      id,
+      releaseId: "release-1",
+      title: id,
+      tempo: 120,
+      timeSignature: "4/4",
+      tracks: [],
+    })),
+    assets: [],
+  });
+  const reopened = migrateProjectLibrary(JSON.parse(JSON.stringify(migrated)));
+
+  assert.deepEqual(reopened.releases[0].songIds, ["song-b", "song-a"]);
 });

@@ -237,7 +237,7 @@ export function LibraryScreen(props: LibraryProps) {
                         </div>
                       )}
                     </div>
-                    <p>{release.releaseType === "Other" ? release.customReleaseType || "Other" : release.releaseType}{release.releaseType !== "Single" ? ` · ${release.songIds.length} ${release.songIds.length === 1 ? "track" : "tracks"}` : ""}</p>
+                    <p>{release.releaseType === "Other" ? release.customReleaseType || "Other" : release.releaseType}{release.releaseType !== "Single" ? ` · ${release.songIds.length} ${release.songIds.length === 1 ? "song" : "songs"}` : ""}</p>
                     {release.artistName && <span className="project-artist">{release.artistName}</span>}
                   </div>
                 </article>
@@ -371,11 +371,32 @@ function ReleaseOverview({
   busy: boolean;
 }) {
   const [error, setError] = useState("");
+  const [addSongOpen, setAddSongOpen] = useState(false);
+  const [newSongTitle, setNewSongTitle] = useState("");
+  const [addingSong, setAddingSong] = useState(false);
   const orderedSongs = release.songIds.map((id) => songs.find((song) => song.id === id)).filter((song): song is SongSession => !!song);
-  const addSong = async () => {
-    const title = window.prompt("Song title", "Untitled Track");
-    if (title === null) return;
-    try { await onAddSong(release.id, title); } catch (cause) { setError(String(cause)); }
+  const openAddSong = () => {
+    setError("");
+    setNewSongTitle("");
+    setAddSongOpen(true);
+  };
+  const submitSong = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!newSongTitle.trim()) {
+      setError("Enter a song title.");
+      return;
+    }
+    setAddingSong(true);
+    setError("");
+    try {
+      await onAddSong(release.id, newSongTitle.trim());
+      setAddSongOpen(false);
+      setNewSongTitle("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The song could not be added.");
+    } finally {
+      setAddingSong(false);
+    }
   };
   const moveSong = async (index: number, direction: -1 | 1) => {
     const ids = [...release.songIds];
@@ -410,9 +431,9 @@ function ReleaseOverview({
             <h1>{release.title}</h1>
             <p className="release-artist">{release.artistName || "Artist not set"}</p>
             {release.description && <p className="release-description">{release.description}</p>}
-            <div className="release-meta">{orderedSongs.length} {orderedSongs.length === 1 ? "track" : "tracks"}<span />Saved on this device</div>
+            <div className="release-meta">{orderedSongs.length} {orderedSongs.length === 1 ? "song" : "songs"}<span />Saved on this device</div>
             <div className="release-actions">
-              <button className="button button-primary" onClick={() => void addSong()} disabled={busy}><Plus size={16} /> Add Track</button>
+              <button className="button button-primary" data-testid="button-add-song" onClick={openAddSong} disabled={busy}><Plus size={16} /> Add Song</button>
               <button className="button button-quiet" onClick={() => {
                 const title = window.prompt("Rename release", release.title);
                 if (title?.trim()) void onUpdateRelease(release.id, { title: title.trim() }).catch((cause) => setError(String(cause)));
@@ -420,7 +441,7 @@ function ReleaseOverview({
             </div>
           </div>
         </div>
-        <div className="tracklist-heading"><div><span className="eyebrow">Release contents</span><h2>Tracks</h2></div><button className="text-button" onClick={() => void addSong()}><Plus size={15} /> Add track</button></div>
+        <div className="tracklist-heading"><div><span className="eyebrow">Release contents</span><h2>Songs</h2></div><button className="text-button" onClick={openAddSong}><Plus size={15} /> Add song</button></div>
         {error && <div className="inline-error" role="alert">{error}<button onClick={() => setError("")}><X size={14} /></button></div>}
         {orderedSongs.length ? (
           <div className="release-track-list">
@@ -437,18 +458,34 @@ function ReleaseOverview({
                     if (title?.trim()) void onRenameSong(song.id, title.trim()).catch((cause) => setError(String(cause)));
                   }}><MoreHorizontal size={16} /></button>
                   <button className="icon-button compact" aria-label={`Duplicate ${song.title}`} onClick={() => void onDuplicateSong(song.id).catch((cause) => setError(String(cause)))}><Copy size={14} /></button>
-                  <button className="icon-button compact danger-hover" aria-label={`Delete ${song.title}`} onClick={() => {
-                    if (window.confirm(`Delete “${song.title}”? This cannot be undone.`)) void onDeleteSong(song.id).catch((cause) => setError(String(cause)));
-                  }}><X size={15} /></button>
+                  <button className="icon-button compact danger-hover" aria-label={`Remove ${song.title}`} onClick={() => {
+                    if (window.confirm(`Remove “${song.title}” and its arrangement from this release? Its original audio files will remain in PRISM's local data folder.`)) void onDeleteSong(song.id).catch((cause) => setError(String(cause)));
+                  }} title="Remove song from release"><X size={15} /></button>
                   <button className="button button-open-track" onClick={() => onOpenSong(song)}>Open <ArrowLeft className="open-arrow" size={13} /></button>
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <div className="empty-tracks"><Disc3 size={24} /><strong>This release is ready for its first song.</strong><span>Add a track to create an independent session.</span><button className="button button-quiet" onClick={() => void addSong()}><Plus size={15} /> Add Track</button></div>
+          <div className="empty-tracks"><Disc3 size={24} /><strong>This release is ready for its first song.</strong><span>Add a song to create an independent session.</span><button className="button button-quiet" onClick={openAddSong}><Plus size={15} /> Add Song</button></div>
         )}
       </section>
+      {addSongOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !addingSong && setAddSongOpen(false)}>
+        <section className="modal-panel create-modal" role="dialog" aria-modal="true" aria-labelledby="add-song-title">
+          <div className="modal-heading">
+            <div><span className="eyebrow">Add to {release.title}</span><h2 id="add-song-title">New Song</h2></div>
+            <button className="icon-button" onClick={() => setAddSongOpen(false)} disabled={addingSong} aria-label="Close"><X size={18} /></button>
+          </div>
+          <form onSubmit={(event) => void submitSong(event)}>
+            <label className="form-field"><span>Song title <b>*</b></span><input autoFocus maxLength={120} value={newSongTitle} onChange={(event) => setNewSongTitle(event.target.value)} placeholder="Name this song" required /></label>
+            {error && <div className="inline-error" role="alert">{error}</div>}
+            <div className="modal-actions">
+              <button className="button button-quiet" type="button" onClick={() => setAddSongOpen(false)} disabled={addingSong}>Cancel</button>
+              <button className="button button-primary" type="submit" disabled={addingSong}>{addingSong ? "Adding…" : "Add Song"}</button>
+            </div>
+          </form>
+        </section>
+      </div>}
     </main>
   );
 }
@@ -462,13 +499,37 @@ function formatDuration(seconds: number): string {
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
+  const createBackup = async () => {
+    setError("");
+    setStatus("");
+    try {
+      const path = await window.prism.backupLibrary();
+      if (path) setStatus(`Backup saved to ${path}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The PRISM backup could not be created.");
+    }
+  };
+  const restoreBackup = async () => {
+    if (!window.confirm("Restore replaces your current PRISM projects and media. PRISM first saves a safety backup of the current data. Continue?")) return;
+    setError("");
+    setStatus("");
+    try {
+      if (await window.prism.restoreLibrary()) window.location.reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The PRISM backup could not be restored.");
+    }
+  };
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="modal-panel settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="modal-heading"><div><span className="eyebrow">On this computer</span><h2 id="settings-title">Settings</h2></div><button className="icon-button" onClick={onClose} aria-label="Close"><X size={18} /></button></div>
         <p className="settings-copy">PRISM keeps your project library and imported media in your local application data folder. Your music stays on this device.</p>
         <button className="button button-quiet folder-button" onClick={() => void window.prism.openDataFolder().catch((cause) => setError(String(cause)))}><FolderOpen size={16} /> Open PRISM data folder</button>
+        <button className="button button-quiet folder-button" onClick={() => void createBackup()}>Back up PRISM library</button>
+        <button className="button button-quiet folder-button" onClick={() => void restoreBackup()}>Restore from backup</button>
         {error && <div className="inline-error">{error}</div>}
+        {status && <div className="settings-copy" role="status">{status}</div>}
         <div className="settings-note"><span className="status-dot" /> Offline project library enabled</div>
       </section>
     </div>

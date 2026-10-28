@@ -27,7 +27,13 @@ import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { migrateSongSession } from "../shared/migrations";
+import {
+  isSafeAssetStorageName,
+  migrateProjectLibrary,
+  type ProjectLibrary,
+  type StoredAsset,
+} from "../shared/migrations";
+import { createLibraryBackup, restoreLibraryBackup } from "./project-backup";
 import type {
   AudioClip,
   CreateReleaseInput,
@@ -55,13 +61,6 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
-type StoredAsset = ProjectAsset & { storageName: string };
-type ProjectLibrary = {
-  version: 2;
-  releases: Release[];
-  sessions: SongSession[];
-  assets: StoredAsset[];
-};
 type ActiveRecording = {
   sessionId: string;
   trackId: string;
@@ -77,6 +76,7 @@ type RecordingManifest = RecordingStart & { id: string; version: 1 };
 
 const productFolder = "PRISM";
 let mainWindow: BrowserWindow | null = null;
+let dataDirectory = "";
 let libraryFile = "";
 let assetDirectory = "";
 let library: ProjectLibrary | null = null;
@@ -85,7 +85,7 @@ let closeApproved = false;
 const activeRecordings = new Map<string, ActiveRecording>();
 
 function emptyLibrary(): ProjectLibrary {
-  return { version: 2, releases: [], sessions: [], assets: [] };
+  return { version: 3, releases: [], sessions: [], assets: [] };
 }
 
 async function persistLibrary(): Promise<void> {
@@ -106,27 +106,12 @@ async function readLibrary(): Promise<ProjectLibrary> {
   try {
     const contents = await readFile(libraryFile, "utf8");
     const parsed: unknown = JSON.parse(contents);
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      !("version" in parsed) ||
-      ![1, 2].includes(Number(parsed.version)) ||
-      !("releases" in parsed) ||
-      !Array.isArray(parsed.releases) ||
-      !("sessions" in parsed) ||
-      !Array.isArray(parsed.sessions) ||
-      !("assets" in parsed) ||
-      !Array.isArray(parsed.assets)
-    ) {
-      throw new Error("The PRISM project library has an unsupported or damaged format.");
-    }
-    const normalized: ProjectLibrary = {
-      version: 2,
-      releases: parsed.releases as Release[],
-      sessions: parsed.sessions.map(migrateSongSession),
-      assets: parsed.assets as StoredAsset[],
-    };
-    if (parsed.version === 1) {
+    const normalized = migrateProjectLibrary(parsed);
+    if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
+      await createLibraryBackup(dataDirectory, join(dataDirectory, "Backups"), {
+        internal: true,
+        label: "Before Migration",
+      });
       library = normalized;
       await persistLibrary();
     }
@@ -538,7 +523,7 @@ function registerIpcHandlers(): void {
   handle("prism:songs:add", async (_event, input: CreateSongInput) => {
     const release = getRelease(input.releaseId);
     if (release.releaseType === "Single") throw new Error("Singles have one song session.");
-    const session = freshSession(release.id, input.title.trim() || "Untitled Track");
+    const session = freshSession(release.id, cleanTitle(input.title));
     release.songIds.push(session.id);
     release.updatedAt = new Date().toISOString();
     getLibrary().sessions.push(session);
@@ -962,6 +947,31 @@ function registerIpcHandlers(): void {
     const error = await shell.openPath(join(app.getPath("userData"), productFolder));
     if (error) throw new Error(error);
   });
+  handle("prism:library:backup", async () => {
+    if (activeRecordings.size > 0) {
+      throw new Error("Stop recording before creating a project backup.");
+    }
+    await persistLibrary();
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: "Choose where to save the PRISM backup",
+      properties: ["openDirectory"],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    return createLibraryBackup(dataDirectory, result.filePaths[0]);
+  });
+  handle("prism:library:restore", async () => {
+    if (activeRecordings.size > 0) {
+      throw new Error("Stop recording before restoring a project backup.");
+    }
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: "Choose a PRISM backup folder",
+      properties: ["openDirectory"],
+    });
+    if (result.canceled || !result.filePaths[0]) return false;
+    await persistLibrary();
+    library = await restoreLibraryBackup(result.filePaths[0], dataDirectory);
+    return true;
+  });
   handle("prism:app:close-ready", async () => {
     if (activeRecordings.size > 0) {
       throw new Error("Stop or cancel the active recording before closing PRISM.");
@@ -1003,8 +1013,20 @@ async function handleMediaRequest(request: Request): Promise<Response> {
     return new Response("Asset not found", { status: 404 });
   }
   const asset = library.assets.find((entry) => entry.id === assetId);
-  if (!asset) return new Response("Asset not found", { status: 404 });
-  return net.fetch(pathToFileURL(join(assetDirectory, asset.storageName)).toString());
+  if (!asset || !isSafeAssetStorageName(asset.storageName)) {
+    return new Response("Asset not found", { status: 404 });
+  }
+  const assetPath = join(assetDirectory, asset.storageName);
+  try {
+    if (!(await stat(assetPath)).isFile()) {
+      return new Response("The project media file is missing.", { status: 404 });
+    }
+  } catch {
+    return new Response("The project media file is missing from PRISM's local data folder.", {
+      status: 404,
+    });
+  }
+  return net.fetch(pathToFileURL(assetPath).toString());
 }
 
 function createApplicationMenu(): void {
@@ -1109,7 +1131,7 @@ app.whenReady().then(async () => {
       callback(webContents === mainWindow?.webContents && audioOnly);
     },
   );
-  const dataDirectory = join(app.getPath("userData"), productFolder);
+  dataDirectory = join(app.getPath("userData"), productFolder);
   assetDirectory = join(dataDirectory, "assets");
   libraryFile = join(dataDirectory, "library.json");
   await mkdir(assetDirectory, { recursive: true });

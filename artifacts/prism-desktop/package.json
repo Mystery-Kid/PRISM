@@ -8,7 +8,7 @@
     "dev": "electron-vite dev",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "electron-vite build",
-    "test": "tsx --test src/shared/migrations.test.ts src/renderer/audio/time.test.ts src/renderer/audio/timeline.test.ts src/renderer/audio/wav.test.ts",
+    "test": "tsx --test src/shared/migrations.test.ts src/main/project-backup.test.ts src/renderer/audio/time.test.ts src/renderer/audio/timeline.test.ts src/renderer/audio/wav.test.ts",
     "package:win": "pnpm run build && electron-builder --win nsis",
     "package:linux": "pnpm run build && electron-builder --linux AppImage",
     "package:mac": "pnpm run build && electron-builder --mac dmg"
