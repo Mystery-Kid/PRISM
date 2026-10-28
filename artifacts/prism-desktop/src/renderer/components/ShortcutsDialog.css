@@ -1,0 +1,143 @@
+.shortcuts-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: #080809c9;
+  backdrop-filter: blur(5px);
+}
+
+.shortcuts-dialog {
+  width: min(760px, 100%);
+  max-height: min(760px, 92dvh);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px;
+  border: 1px solid #39393e;
+  border-radius: 12px;
+  color: #ececf0;
+  background: #19191b;
+  box-shadow: 0 24px 80px #000b;
+}
+
+.shortcuts-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.shortcuts-heading h2 {
+  margin: 6px 0 0;
+  font-size: 22px;
+  letter-spacing: -.035em;
+}
+
+.shortcuts-intro {
+  margin: 0;
+  color: #9a9aa2;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.shortcuts-search {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  color: #85858d;
+  background: #111113;
+  border: 1px solid #343439;
+  border-radius: 6px;
+}
+
+.shortcuts-search input {
+  width: 100%;
+  color: #e7e7eb;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 11px;
+}
+
+.shortcuts-list {
+  min-height: 110px;
+  overflow: auto;
+  border: 1px solid #303034;
+  border-radius: 7px;
+}
+
+.shortcut-row {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 10px 8px 13px;
+  border-bottom: 1px solid #ffffff0b;
+}
+
+.shortcut-row:last-child { border-bottom: 0; }
+
+.shortcut-command {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.shortcut-command strong { display: flex; align-items: center; gap: 7px; color: #dfdfe4; font-size: 11px; font-weight: 600; }
+.shortcut-context { padding: 2px 5px; border: 1px solid #39393f; border-radius: 3px; color: #909098; font-size: 7px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; }
+.shortcut-command span { color: #85858d; font-size: 9px; line-height: 1.35; }
+
+.shortcut-assignment {
+  min-width: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.shortcut-assignment kbd {
+  min-width: 60px;
+  padding: 5px 8px;
+  border: 1px solid #39393f;
+  border-radius: 5px;
+  color: #d8d8df;
+  background: #222225;
+  font: 10px ui-monospace, SFMono-Regular, Consolas, monospace;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.shortcut-change { min-width: 65px; height: 28px; padding: 0 8px; font-size: 9px; }
+.shortcut-change.capturing { border-color: #8e9cff; color: #d3d8ff; }
+.shortcuts-empty { padding: 15px; color: #9999a1; font-size: 11px; text-align: center; }
+.shortcuts-conflicts { display: flex; flex-direction: column; gap: 4px; padding: 9px 11px; border: 1px solid #744747; border-radius: 6px; color: #e4b1b1; background: #381f1f80; font-size: 10px; }
+.shortcuts-conflicts strong { margin-bottom: 2px; }
+.shortcuts-message { margin: 0; color: #a8c9b4; font-size: 10px; }
+.shortcuts-file-input { display: none; }
+
+.shortcuts-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #303034;
+}
+
+.shortcuts-profile-actions, .shortcuts-submit-actions { display: flex; align-items: center; gap: 7px; }
+.shortcuts-actions .button { height: 31px; font-size: 10px; }
+.shortcuts-actions .text-button { padding: 6px 4px; font-size: 10px; }
+
+@media (max-width: 560px) {
+  .shortcuts-dialog { padding: 16px; }
+  .shortcut-row { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .shortcut-assignment { width: 100%; justify-content: flex-start; }
+  .shortcuts-actions { align-items: flex-start; flex-direction: column; }
+  .shortcuts-submit-actions { align-self: flex-end; }
+}

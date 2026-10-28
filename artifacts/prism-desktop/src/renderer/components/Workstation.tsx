@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import {
   AudioLines, Circle, CircleStop, Download, Headphones, Music2, Pause, Play, Plus,
-  Redo2, Save, SkipBack, SlidersHorizontal, Sparkles, Trash2, Undo2, Volume2, VolumeX, X,
+  Keyboard, Redo2, Save, SkipBack, SlidersHorizontal, Sparkles, Trash2, Undo2, Volume2, VolumeX, X,
 } from "lucide-react";
 import type {
   AudioClip,
@@ -16,13 +16,36 @@ import type {
 import { createDefaultDrumKit, createDefaultSamplerState } from "@shared/instrument-tracks";
 import { AudioEngine, type AudioDevice, type AudioEngineSnapshot } from "../audio/AudioEngine";
 import { secondsPerBeat } from "../audio/time";
-import { getPianoNoteDragUpdate, type PianoNoteDragState } from "./piano-roll";
+import { getPianoNoteDragUpdate, splitMidiNoteAt, type PianoNoteDragState } from "./piano-roll";
 import { EffectsPanel } from "./EffectsPanel";
 import { RoutingPanel } from "./RoutingPanel";
 import { SamplerPanel } from "./SamplerPanel";
 import { DrumPanel } from "./DrumPanel";
+import { ShortcutsDialog } from "./ShortcutsDialog";
 import { getAllowedBusTargets } from "@shared/audio-routing";
 import prismLogo from "../assets/prism-logo.png";
+import {
+  activeShortcutContext,
+  commandIsActive,
+  findShortcutConflicts,
+  formatShortcut,
+  getShortcutPlatform,
+  isEditableTarget,
+  loadShortcutBindings,
+  matchesShortcut,
+  serializeShortcutProfile,
+  shortcutRegistry,
+  shortcutStorageKey,
+  type ShortcutBindings,
+  type ShortcutCommandId,
+} from "../shortcuts";
+import {
+  createSessionHistory,
+  recordSessionSnapshot,
+  redoSessionHistory,
+  sessionHistoryAvailability,
+  undoSessionHistory,
+} from "../session-history";
 
 type WorkstationProps = {
   session: SongSession;
@@ -31,6 +54,10 @@ type WorkstationProps = {
   onHome: () => void;
 };
 type Meter = { peak: number; rms: number };
+type ContextMenuTarget =
+  | { kind: "clip"; clipId: string; trackId: string }
+  | { kind: "note"; noteId: string; trackId: string };
+type ContextMenuState = ContextMenuTarget & { x: number; y: number };
 const colors = ["#d7a568", "#77a99e", "#a58ac4", "#c77979", "#829fc2"];
 const emptySnapshot: AudioEngineSnapshot = {
   status: "stopped",
@@ -45,7 +72,8 @@ const emptySnapshot: AudioEngineSnapshot = {
   inputMeter: { peak: 0, rms: 0 },
   inputChannels: null,
 };
-const historyLimit = 30;
+const historyLimit = 50;
+type EditTool = "select" | "draw" | "erase" | "split";
 
 export function Workstation({ session: initialSession, releaseTitle, onBack, onHome }: WorkstationProps) {
   const [session, setSession] = useState(initialSession);
@@ -74,13 +102,25 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const [selectedEffectBusId, setSelectedEffectBusId] = useState("");
   const [notice, setNotice] = useState("");
   const [historyAvailability, setHistoryAvailability] = useState({ canUndo: false, canRedo: false });
+  const [shortcutDialogOpen, setShortcutDialogOpen] = useState(false);
+  const [shortcutSettings, setShortcutSettings] = useState(loadShortcutBindings);
+  const [shortcutBindings, setShortcutBindings] = useState(shortcutSettings.bindings);
+  const [editTool, setEditTool] = useState<EditTool>("select");
+  const [openCommandMenu, setOpenCommandMenu] = useState<"edit" | "view" | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const pianoGridRef = useRef<HTMLDivElement>(null);
-  const history = useRef<{ states: SongSession[]; index: number }>({
-    states: [structuredClone(initialSession)],
-    index: 0,
+  const history = useRef(createSessionHistory(initialSession));
+  const commandExecutor = useRef<(commandId: ShortcutCommandId) => void>(() => {});
+  const shortcutStateRef = useRef({
+    bindings: shortcutBindings, panel, dialogOpen: shortcutDialogOpen,
+    menuOpen: openCommandMenu, contextMenu,
   });
-  const skipHistoryCapture = useRef(false);
+  shortcutStateRef.current = {
+    bindings: shortcutBindings, panel, dialogOpen: shortcutDialogOpen,
+    menuOpen: openCommandMenu, contextMenu,
+  };
+  const platform = getShortcutPlatform(navigator.platform || navigator.userAgent);
   const beatSeconds = secondsPerBeat(session.tempo, session.timeSignature);
   const barSeconds = beatSeconds * beatsPerBar(session.timeSignature);
   const pixelsPerSecond = 54 * zoom;
@@ -110,10 +150,9 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   }, [panel, selectedTrack, selectedNote]);
 
   useEffect(() => {
-    history.current = { states: [structuredClone(initialSession)], index: 0 };
+    history.current = createSessionHistory(initialSession);
     setHistoryAvailability({ canUndo: false, canRedo: false });
     if (session.id !== initialSession.id) {
-      skipHistoryCapture.current = true;
       setSession(initialSession);
       setSelectedTrack(initialSession.tracks[0]?.id ?? "");
     }
@@ -123,19 +162,9 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   }, [initialSession.id]);
 
   useEffect(() => {
-    if (skipHistoryCapture.current) {
-      skipHistoryCapture.current = false;
-      return;
-    }
     const timer = window.setTimeout(() => {
-      const stack = history.current;
-      const previous = stack.states[stack.index];
-      if (previous && JSON.stringify(previous) === JSON.stringify(session)) return;
-      const states = stack.states.slice(0, stack.index + 1);
-      states.push(structuredClone(session));
-      if (states.length > historyLimit) states.shift();
-      history.current = { states, index: states.length - 1 };
-      setHistoryAvailability({ canUndo: states.length > 1, canRedo: false });
+      history.current = recordSessionSnapshot(history.current, session, historyLimit);
+      setHistoryAvailability(sessionHistoryAvailability(history.current));
     }, 280);
     return () => window.clearTimeout(timer);
   }, [session]);
@@ -506,23 +535,21 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   };
   const undo = () => {
     if (recording) return;
-    const stack = history.current;
-    if (stack.index <= 0) return;
-    const index = stack.index - 1;
-    history.current = { ...stack, index };
-    skipHistoryCapture.current = true;
-    setSession(structuredClone(stack.states[index]));
-    setHistoryAvailability({ canUndo: index > 0, canRedo: true });
+    history.current = recordSessionSnapshot(history.current, session, historyLimit);
+    const result = undoSessionHistory(history.current);
+    if (!result.value) return;
+    history.current = result.history;
+    setSession(result.value);
+    setHistoryAvailability(sessionHistoryAvailability(history.current));
   };
   const redo = () => {
     if (recording) return;
-    const stack = history.current;
-    if (stack.index >= stack.states.length - 1) return;
-    const index = stack.index + 1;
-    history.current = { ...stack, index };
-    skipHistoryCapture.current = true;
-    setSession(structuredClone(stack.states[index]));
-    setHistoryAvailability({ canUndo: true, canRedo: index < stack.states.length - 1 });
+    history.current = recordSessionSnapshot(history.current, session, historyLimit);
+    const result = redoSessionHistory(history.current);
+    if (!result.value) return;
+    history.current = result.history;
+    setSession(result.value);
+    setHistoryAvailability(sessionHistoryAvailability(history.current));
   };
   const leave = async (navigate: () => void) => {
     setSaveStatus("saving");
@@ -543,21 +570,108 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     setSession((current) => ({ ...current, tracks: current.tracks.map((track) => ({ ...track, clips: track.clips.filter((clip) => clip.id !== clipId) })) }));
     setSelectedClip(null);
   };
-  const duplicateClip = () => {
-    if (!selected) return;
-    const copy = { ...selected.clip, id: crypto.randomUUID(), startSeconds: selected.clip.startSeconds + selected.clip.durationSeconds };
-    setSession((current) => ({ ...current, tracks: current.tracks.map((track) => track.id === selected.track.id ? { ...track, clips: [...track.clips, copy] } : track) }));
-    setSelectedClip(copy.id);
+  const removeNote = (noteId: string) => {
+    setSession((current) => ({
+      ...current,
+      tracks: current.tracks.map((track) => ({ ...track, notes: track.notes.filter((note) => note.id !== noteId) })),
+    }));
+    if (selectedNote === noteId) setSelectedNote(null);
   };
-  const splitClip = () => {
-    if (!selected) return;
-    const { clip, track } = selected;
+  const duplicateNote = (noteId = selectedNote) => {
+    if (!noteId) return;
+    const source = session.tracks
+      .map((track) => ({ track, note: track.notes.find((item) => item.id === noteId) }))
+      .find((item) => item.note);
+    if (!source?.note) return;
+    const copy: MidiNote = {
+      ...source.note,
+      id: crypto.randomUUID(),
+      startBeat: source.note.startBeat + Math.max(0.25, source.note.durationBeats),
+    };
+    setSession((current) => ({
+      ...current,
+      tracks: current.tracks.map((track) => track.id === source.track.id
+        ? { ...track, notes: [...track.notes, copy] }
+        : track),
+    }));
+    setSelectedTrack(source.track.id);
+    setSelectedNote(copy.id);
+    setPanel("piano");
+  };
+  const nudgeSelectedNote = (beatDelta: number, pitchDelta: number) => {
+    if (!selectedNote) return;
+    const track = session.tracks.find((item) => item.id === selectedTrack);
+    const note = track?.notes.find((item) => item.id === selectedNote);
+    if (!track || !note) return;
+    updateNote(track.id, note.id, {
+      startBeat: Math.max(0, snap ? Math.round((note.startBeat + beatDelta) * 4) / 4 : note.startBeat + beatDelta),
+      pitch: clamp(note.pitch + pitchDelta, 0, 127),
+    });
+  };
+  const splitMidiNote = (noteId = selectedNote) => {
+    if (!noteId) return;
+    const source = session.tracks
+      .map((track) => ({ track, note: track.notes.find((item) => item.id === noteId) }))
+      .find((item) => item.note);
+    if (!source?.note) return;
+    const playheadBeat = snapshot.position / beatSeconds;
+    const cutBeat = snap ? Math.round(playheadBeat * 4) / 4 : playheadBeat;
+    const parts = splitMidiNoteAt(source.note, cutBeat, crypto.randomUUID());
+    if (!parts) {
+      setNotice("Place the playhead at least a quarter beat inside the selected MIDI note to split it.");
+      return;
+    }
+    setSession((current) => ({
+      ...current,
+      tracks: current.tracks.map((track) => track.id === source.track.id
+        ? {
+          ...track,
+          notes: [...track.notes.map((note) => note.id === source.note!.id ? parts.left : note), parts.right],
+        }
+        : track),
+    }));
+    setSelectedTrack(source.track.id);
+    setSelectedNote(parts.right.id);
+    setNotice("");
+  };
+  const duplicateClipById = (clipId = selectedClip) => {
+    if (!clipId) return;
+    const source = session.tracks
+      .map((track) => ({ track, clip: track.clips.find((item) => item.id === clipId) }))
+      .find((item) => item.clip);
+    if (!source?.clip) return;
+    const copy = { ...source.clip, id: crypto.randomUUID(), startSeconds: source.clip.startSeconds + source.clip.durationSeconds };
+    setSession((current) => ({ ...current, tracks: current.tracks.map((track) => track.id === source.track.id ? { ...track, clips: [...track.clips, copy] } : track) }));
+    setSelectedClip(copy.id);
+    setSelectedTrack(source.track.id);
+  };
+  const duplicateClip = () => {
+    duplicateClipById();
+  };
+  const splitClipById = (clipId = selectedClip) => {
+    if (!clipId) return;
+    const source = session.tracks
+      .map((track) => ({ track, clip: track.clips.find((item) => item.id === clipId) }))
+      .find((item) => item.clip);
+    if (!source?.clip) return;
+    const { clip, track } = source;
     const cut = snapshot.position - clip.startSeconds;
     if (cut <= 0.02 || cut >= clip.durationSeconds - 0.02) { setNotice("Place the playhead inside the selected clip to split it."); return; }
     const right = { ...clip, id: crypto.randomUUID(), startSeconds: snapshot.position, durationSeconds: clip.durationSeconds - cut, sourceStartSeconds: clip.sourceStartSeconds + cut, fadeInSeconds: 0 };
-    updateClip(track.id, clip.id, { durationSeconds: cut, fadeOutSeconds: 0 });
-    setSession((current) => ({ ...current, tracks: current.tracks.map((item) => item.id === track.id ? { ...item, clips: [...item.clips, right] } : item) }));
+    setSession((current) => ({
+      ...current,
+      tracks: current.tracks.map((item) => item.id === track.id ? {
+        ...item,
+        clips: [...item.clips.map((itemClip) => itemClip.id === clip.id
+          ? { ...itemClip, durationSeconds: cut, fadeOutSeconds: 0 }
+          : itemClip), right],
+      } : item),
+    }));
     setSelectedClip(right.id);
+    setSelectedTrack(track.id);
+  };
+  const splitClip = () => {
+    splitClipById();
   };
   const exportWav = () => safe(async () => {
     if (!engine) return;
@@ -568,20 +682,157 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     } finally { setBusy(""); }
   });
 
+  const createMidiNoteAt = (trackId: string, beat: number, pitch: number) => {
+    const track = session.tracks.find((item) => item.id === trackId);
+    if (!track || !["instrument", "sampler", "drum"].includes(track.type)) {
+      setNotice("Choose a supported MIDI track before drawing a note.");
+      return;
+    }
+    const startBeat = snap ? Math.round(beat * 4) / 4 : beat;
+    const note: MidiNote = {
+      id: crypto.randomUUID(),
+      pitch: Math.round(clamp(pitch, 0, 127)),
+      startBeat: Math.max(0, startBeat),
+      durationBeats: 1,
+      velocity: 90,
+    };
+    setSession((current) => ({
+      ...current,
+      tracks: current.tracks.map((item) => item.id === track.id
+        ? { ...item, notes: [...item.notes, note] }
+        : item),
+    }));
+    setSelectedTrack(track.id);
+    setSelectedNote(note.id);
+    setNotice("");
+  };
+
+  const moveTrackSelection = (direction: -1 | 1) => {
+    const ids = session.tracks.map((track) => track.id);
+    if (ids.length === 0) return;
+    const currentIndex = ids.indexOf(selectedTrack);
+    const origin = currentIndex < 0 ? (direction > 0 ? -1 : 0) : currentIndex;
+    setSelectedTrack(ids[(origin + direction + ids.length) % ids.length]);
+  };
+
+  const executeCommand = (commandId: ShortcutCommandId) => {
+    setOpenCommandMenu(null);
+    switch (commandId) {
+      case "transport.toggle": void play(); break;
+      case "transport.stop": void stop(); break;
+      case "transport.home":
+        void safe(async () => {
+          if (recording) await engine?.stopRecording();
+          engine?.stop(true);
+          setRecording(false);
+          setSnapshot((old) => ({ ...old, status: "stopped", position: 0 }));
+        });
+        break;
+      case "transport.stepBack": seek(snapshot.position - beatSeconds / 4); break;
+      case "transport.stepForward": seek(snapshot.position + beatSeconds / 4); break;
+      case "project.save": void saveNow(); break;
+      case "project.library": void leave(onHome); break;
+      case "edit.undo": undo(); break;
+      case "edit.redo": redo(); break;
+      case "edit.duplicate":
+        if (activeShortcutContext(panel) === "piano") duplicateNote();
+        else duplicateClip();
+        break;
+      case "edit.delete":
+        if (activeShortcutContext(panel) === "piano") {
+          if (selectedNote) removeNote(selectedNote);
+        } else if (selectedClip) removeClip(selectedClip);
+        break;
+      case "edit.split":
+        if (activeShortcutContext(panel) === "piano") splitMidiNote();
+        else splitClip();
+        break;
+      case "edit.addNote":
+        if (selectedPatternTrack) {
+          const pitch = selectedPatternTrack.type === "sampler"
+            ? selectedPatternTrack.sampler?.rootNote ?? 60
+            : selectedPatternTrack.type === "drum"
+              ? selectedPatternTrack.drumKit?.pads[0]?.note ?? 36
+              : 60;
+          addMidiNote(selectedPatternTrack.id, pitch);
+        }
+        break;
+      case "edit.toggleSnap": setSnap((current) => !current); break;
+      case "edit.nudgeLeft": nudgeSelectedNote(-0.25, 0); break;
+      case "edit.nudgeRight": nudgeSelectedNote(0.25, 0); break;
+      case "edit.nudgeUp": nudgeSelectedNote(0, 1); break;
+      case "edit.nudgeDown": nudgeSelectedNote(0, -1); break;
+      case "tool.select": setEditTool("select"); break;
+      case "tool.draw": setEditTool("draw"); break;
+      case "tool.erase": setEditTool("erase"); break;
+      case "tool.split": setEditTool("split"); break;
+      case "view.zoomIn": setZoom((current) => clamp(current + 0.1, 0.5, 2.4)); break;
+      case "view.zoomOut": setZoom((current) => clamp(current - 0.1, 0.5, 2.4)); break;
+      case "view.zoomReset": setZoom(1); break;
+      case "panel.mixer": setPanel("mixer"); break;
+      case "panel.piano": setPanel("piano"); break;
+      case "panel.effects": setSelectedEffectBusId(""); setPanel("effects"); break;
+      case "panel.routing": setPanel("routing"); break;
+      case "mixer.previousTrack": moveTrackSelection(-1); break;
+      case "mixer.nextTrack": moveTrackSelection(1); break;
+      case "effects.previousTrack": setSelectedEffectBusId(""); moveTrackSelection(-1); break;
+      case "effects.nextTrack": setSelectedEffectBusId(""); moveTrackSelection(1); break;
+      case "help.shortcuts": setShortcutDialogOpen(true); break;
+    }
+  };
+  commandExecutor.current = executeCommand;
+
+  useEffect(() => {
+    if (shortcutSettings.error) setNotice(shortcutSettings.error);
+  }, []);
+
+  const applyShortcutProfile = (next: ShortcutBindings) => {
+    if (findShortcutConflicts(next).length > 0) {
+      setNotice("Resolve shortcut conflicts before applying the profile.");
+      return;
+    }
+    try {
+      localStorage.setItem(shortcutStorageKey, serializeShortcutProfile(next));
+      setShortcutBindings(next);
+      setShortcutSettings({ bindings: next, error: "" });
+      setShortcutDialogOpen(false);
+      setNotice("Keyboard shortcuts saved on this computer.");
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "The shortcut profile could not be saved.");
+    }
+  };
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.target as HTMLElement | null)?.matches("input, textarea, select, [contenteditable=true]")) return;
-      if (event.code === "Space" && !event.repeat) { event.preventDefault(); void play(); }
-      else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void saveNow(); }
-      else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && event.shiftKey) { event.preventDefault(); redo(); }
-      else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); undo(); }
-      else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") { event.preventDefault(); redo(); }
-      else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "d") { event.preventDefault(); duplicateClip(); }
-      else if ((event.key === "Delete" || event.key === "Backspace") && selectedClip) removeClip(selectedClip);
+      if (shortcutStateRef.current.dialogOpen) return;
+      if (event.key === "Escape" && (shortcutStateRef.current.menuOpen || shortcutStateRef.current.contextMenu)) {
+        event.preventDefault();
+        setOpenCommandMenu(null);
+        setContextMenu(null);
+        return;
+      }
+      if (isEditableTarget(event.target)) return;
+      const element = event.target as Element | null;
+      if (event.key === " " && typeof element?.closest === "function" &&
+          element.closest("button, a, [role='button']")) return;
+      const context = activeShortcutContext(shortcutStateRef.current.panel);
+      const command = shortcutRegistry.find((item) =>
+        commandIsActive(item, context) &&
+        matchesShortcut(event, shortcutStateRef.current.bindings[item.id], platform),
+      );
+      if (!command) return;
+      const repeatable = [
+        "transport.stepBack", "transport.stepForward",
+        "edit.nudgeLeft", "edit.nudgeRight", "edit.nudgeUp", "edit.nudgeDown",
+        "view.zoomIn", "view.zoomOut",
+      ];
+      if (event.repeat && !repeatable.includes(command.id)) return;
+      event.preventDefault();
+      commandExecutor.current(command.id);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  });
+  }, [platform]);
 
   const labelTime = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}.${String(Math.floor((seconds % 1) * 10))}`;
   const timelineWidth = Math.max(1000, duration * pixelsPerSecond + 120);
@@ -600,6 +851,40 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         <button className="workstation-crumb" data-testid="button-release-back" onClick={() => void leave(onBack)}>{releaseTitle}</button>
         <span className="crumb-divider">/</span><strong className="current-song" data-testid="text-song-title">{session.title}</strong>
       </div>
+      <nav className="workstation-command-menus" aria-label="Workstation menus">
+        <div className="command-menu-wrap">
+          <button className="command-menu-trigger" type="button" data-testid="menu-edit" aria-haspopup="menu" aria-expanded={openCommandMenu === "edit"} onClick={() => setOpenCommandMenu((current) => current === "edit" ? null : "edit")}>Edit</button>
+          {openCommandMenu === "edit" && <div className="workstation-command-menu" role="menu">
+            <button role="menuitem" onClick={() => executeCommand("edit.undo")} disabled={!historyAvailability.canUndo || recording}>Undo <kbd>{formatShortcut(shortcutBindings["edit.undo"], platform)}</kbd></button>
+            <button role="menuitem" onClick={() => executeCommand("edit.redo")} disabled={!historyAvailability.canRedo || recording}>Redo <kbd>{formatShortcut(shortcutBindings["edit.redo"], platform)}</kbd></button>
+            <hr />
+            <button role="menuitem" onClick={() => executeCommand("edit.duplicate")}>Duplicate</button>
+            <button role="menuitem" onClick={() => executeCommand("edit.delete")}>Delete</button>
+            <button role="menuitem" onClick={() => executeCommand("edit.split")}>Split selection at playhead</button>
+            <button role="menuitem" onClick={() => executeCommand("edit.toggleSnap")}>{snap ? "Disable snap" : "Enable snap"}</button>
+            <hr />
+            <button role="menuitem" onClick={() => executeCommand("tool.select")}>Select tool</button>
+            <button role="menuitem" onClick={() => executeCommand("tool.draw")}>Draw tool</button>
+            <button role="menuitem" onClick={() => executeCommand("tool.erase")}>Erase tool</button>
+            <button role="menuitem" onClick={() => executeCommand("tool.split")}>Split tool</button>
+          </div>}
+        </div>
+        <div className="command-menu-wrap">
+          <button className="command-menu-trigger" type="button" data-testid="menu-view" aria-haspopup="menu" aria-expanded={openCommandMenu === "view"} onClick={() => setOpenCommandMenu((current) => current === "view" ? null : "view")}>View</button>
+          {openCommandMenu === "view" && <div className="workstation-command-menu" role="menu">
+            <button role="menuitem" onClick={() => executeCommand("view.zoomIn")}>Zoom in</button>
+            <button role="menuitem" onClick={() => executeCommand("view.zoomOut")}>Zoom out</button>
+            <button role="menuitem" onClick={() => executeCommand("view.zoomReset")}>Reset zoom</button>
+            <hr />
+            <button role="menuitem" onClick={() => executeCommand("panel.mixer")}>Mixer</button>
+            <button role="menuitem" onClick={() => executeCommand("panel.piano")}>Piano roll</button>
+            <button role="menuitem" onClick={() => executeCommand("panel.effects")}>Effects</button>
+            <button role="menuitem" onClick={() => executeCommand("panel.routing")}>Routing</button>
+            <hr />
+            <button role="menuitem" onClick={() => executeCommand("help.shortcuts")}><Keyboard size={13} /> Keyboard shortcuts</button>
+          </div>}
+        </div>
+      </nav>
       <div className={`save-indicator ${saveStatus}`} data-testid="status-session-save" aria-live="polite" title={saveError || "Stored on this device"}>
         <span className="save-dot" />{saveStatus === "saving" ? "Saving" : saveStatus === "error" ? "Save error" : "Saved locally"}
       </div>
@@ -636,14 +921,26 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     <section className="arrangement">
       <div className="arrangement-toolbar">
         <div className="arrangement-tools"><span className="panel-label">ARRANGEMENT</span>
-          <button className="icon-button compact" data-testid="button-undo" aria-label="Undo edit" title="Undo (Ctrl+Z)" disabled={!historyAvailability.canUndo || recording} onClick={undo}><Undo2 size={14} /></button>
-          <button className="icon-button compact" data-testid="button-redo" aria-label="Redo edit" title="Redo (Ctrl+Shift+Z)" disabled={!historyAvailability.canRedo || recording} onClick={redo}><Redo2 size={14} /></button>
+          <div className="edit-tool-group" role="group" aria-label="Editing tool">
+            {(["select", "draw", "erase", "split"] as const).map((tool) => <button
+              key={tool}
+              className={`edit-tool-button ${editTool === tool ? "active" : ""}`}
+              type="button"
+              data-testid={`button-tool-${tool}`}
+              aria-label={`${tool[0].toUpperCase()}${tool.slice(1)} tool`}
+              aria-pressed={editTool === tool}
+              onClick={() => setEditTool(tool)}
+            >{tool[0].toUpperCase()}{tool.slice(1)}</button>)}
+          </div>
+          <button className="icon-button compact" data-testid="button-undo" aria-label="Undo edit" title={`Undo (${formatShortcut(shortcutBindings["edit.undo"], platform)})`} disabled={!historyAvailability.canUndo || recording} onClick={undo}><Undo2 size={14} /></button>
+          <button className="icon-button compact" data-testid="button-redo" aria-label="Redo edit" title={`Redo (${formatShortcut(shortcutBindings["edit.redo"], platform)})`} disabled={!historyAvailability.canRedo || recording} onClick={redo}><Redo2 size={14} /></button>
           <button className="button button-subtle" data-testid="button-import-audio" onClick={() => void importAudio()}><Plus size={14} /> Import audio</button>
           <button className="button button-subtle" data-testid="button-add-audio-track" onClick={() => addTrack("audio")}><Plus size={14} /> Audio track</button>
           <button className="button button-subtle" data-testid="button-add-instrument-track" onClick={() => addTrack("instrument")}><Music2 size={14} /> Instrument</button>
           <button className="button button-subtle" data-testid="button-add-sampler-track" onClick={() => addTrack("sampler")}><AudioLines size={14} /> Sampler</button>
           <button className="button button-subtle" data-testid="button-add-drum-track" onClick={() => addTrack("drum")}><Music2 size={14} /> Drums</button>
           <label className="snap-toggle"><input data-testid="input-snap" type="checkbox" checked={snap} onChange={(event) => setSnap(event.target.checked)} /> Snap</label>
+          <button className="icon-button compact" type="button" data-testid="button-open-shortcuts" aria-label="Keyboard shortcuts" title="Keyboard shortcuts" onClick={() => setShortcutDialogOpen(true)}><Keyboard size={14} /></button>
         </div>
         <div className="zoom-control"><span>Zoom</span><input data-testid="input-timeline-zoom" aria-label="Timeline zoom" type="range" min=".5" max="2.4" step=".05" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></div>
       </div>
@@ -673,15 +970,21 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
               <label className="track-level"><span>VOL</span><input data-testid={`input-track-volume-${track.id}`} aria-label={`${track.name} volume`} type="range" min="0" max="1.25" step=".01" value={track.volume} onChange={(event) => updateTrack(track.id, { volume: Number(event.target.value) })} /><small>{Math.round(track.volume * 100)}</small></label>
               <label className="track-pan"><span>PAN</span><input data-testid={`input-track-pan-${track.id}`} aria-label={`${track.name} pan`} type="range" min="-1" max="1" step=".01" value={track.pan} onChange={(event) => updateTrack(track.id, { pan: Number(event.target.value) })} /></label>
             </div>
-            <div className="timeline-lane" onClick={(event) => {
+            <div className={`timeline-lane tool-${editTool}`} onClick={(event) => {
               if ((event.target as HTMLElement).closest(".audio-clip, .midi-note")) return;
               selectTrack(track);
               const bounds = event.currentTarget.getBoundingClientRect();
-              seek((event.clientX - bounds.left) / pixelsPerSecond);
+              const seconds = Math.max(0, (event.clientX - bounds.left) / pixelsPerSecond);
+              if (editTool === "draw") {
+                const pitch = 127 - Math.floor((event.clientY - bounds.top) / 0.62);
+                createMidiNoteAt(track.id, seconds / beatSeconds, pitch);
+                return;
+              }
+              if (editTool !== "erase") seek(seconds);
             }}>
               {Array.from({ length: Math.ceil(duration / barSeconds) + 2 }, (_, index) => <div key={index} className="lane-gridline" style={{ left: `${index * barSeconds * pixelsPerSecond}px` }} />)}
-              {track.clips.map((clip) => <ClipBlock key={clip.id} clip={clip} selected={selectedClip === clip.id} pps={pixelsPerSecond} snapStep={beatSeconds / 4} snap={snap} onSelect={() => { setSelectedTrack(track.id); setSelectedClip(clip.id); setPanel("clip"); }} onUpdate={(update) => updateClip(track.id, clip.id, update)} onDelete={() => removeClip(clip.id)} />)}
-              {["instrument", "sampler", "drum", "unsupported"].includes(track.type) && track.notes.map((note) => <div key={note.id} className={`midi-note ${selectedNote === note.id ? "selected" : ""}`} data-testid={`note-${note.id}`} style={{ left: `${note.startBeat * beatSeconds * pixelsPerSecond}px`, width: `${Math.max(12, note.durationBeats * beatSeconds * pixelsPerSecond)}px`, top: `${Math.max(3, (127 - note.pitch) * .62)}px` }} onClick={(event) => { event.stopPropagation(); setSelectedTrack(track.id); setSelectedNote(note.id); setPanel("piano"); }} title={`${pitchName(note.pitch)} · velocity ${note.velocity}`} />)}
+              {track.clips.map((clip) => <ClipBlock key={clip.id} clip={clip} selected={selectedClip === clip.id} pps={pixelsPerSecond} snapStep={beatSeconds / 4} snap={snap} tool={editTool} onSelect={() => { setSelectedTrack(track.id); setSelectedClip(clip.id); setPanel("clip"); }} onUpdate={(update) => updateClip(track.id, clip.id, update)} onDelete={() => removeClip(clip.id)} onSplit={() => splitClipById(clip.id)} onContextMenu={(x, y) => { setSelectedTrack(track.id); setSelectedClip(clip.id); setPanel("clip"); setContextMenu({ kind: "clip", clipId: clip.id, trackId: track.id, x, y }); }} />)}
+              {["instrument", "sampler", "drum", "unsupported"].includes(track.type) && track.notes.map((note) => <div key={note.id} className={`midi-note ${selectedNote === note.id ? "selected" : ""} ${editTool === "erase" ? "eraser-target" : ""}`} data-testid={`note-${note.id}`} style={{ left: `${note.startBeat * beatSeconds * pixelsPerSecond}px`, width: `${Math.max(12, note.durationBeats * beatSeconds * pixelsPerSecond)}px`, top: `${Math.max(3, (127 - note.pitch) * .62)}px` }} onClick={(event) => { event.stopPropagation(); if (editTool === "erase") { removeNote(note.id); return; } if (editTool === "split") { splitMidiNote(note.id); return; } setSelectedTrack(track.id); setSelectedNote(note.id); setPanel("piano"); }} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setSelectedTrack(track.id); setSelectedNote(note.id); setPanel("piano"); setContextMenu({ kind: "note", noteId: note.id, trackId: track.id, x: event.clientX, y: event.clientY }); }} title={`${pitchName(note.pitch)} · velocity ${note.velocity}`} />)}
               <div className="playhead" style={{ left: `${snapshot.position * pixelsPerSecond}px` }} />
             </div>
           </div>)}
@@ -767,11 +1070,12 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
           {selectedPatternNote && <>
             <label>Pitch<input data-testid="input-note-pitch" type="number" min="0" max="127" value={selectedPatternNote.pitch} onChange={(event) => updateNote(selectedPatternTrack!.id, selectedPatternNote.id, { pitch: Math.round(clamp(Number(event.target.value), 0, 127)) })} /></label>
             <label>Velocity<input data-testid="input-note-velocity" type="range" min="1" max="127" value={selectedPatternNote.velocity} onChange={(event) => updateNote(selectedPatternTrack!.id, selectedPatternNote.id, { velocity: Number(event.target.value) })} /></label>
-            <button className="icon-button compact danger-hover" data-testid="button-delete-midi-note" title="Delete selected note" onClick={() => { setSession((current) => ({ ...current, tracks: current.tracks.map((track) => ({ ...track, notes: track.notes.filter((note) => note.id !== selectedNote) })) })); setSelectedNote(null); }}><Trash2 size={13} /></button>
+            <button className="icon-button compact danger-hover" data-testid="button-delete-midi-note" title="Delete selected note" onClick={() => { if (selectedNote) removeNote(selectedNote); }}><Trash2 size={13} /></button>
           </>}
         </div>
         <div className="piano-grid" ref={pianoGridRef} data-testid="piano-roll" onClick={(event) => {
           if ((event.target as HTMLElement).closest(".piano-key, .piano-note")) return;
+          if (editTool === "erase" || editTool === "split") return;
           if (!selectedPatternTrack || selectedPatternTrack.type === "unsupported") {
             setNotice("Select a supported sampler, drum, or instrument track to create MIDI notes.");
             return;
@@ -779,12 +1083,10 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
           const bounds = event.currentTarget.getBoundingClientRect();
           const beat = Math.max(0, (event.clientX - bounds.left + event.currentTarget.scrollLeft) / (beatSeconds * pixelsPerSecond));
           const pitch = clamp(127 - Math.floor((event.clientY - bounds.top + event.currentTarget.scrollTop) / 15), 0, 127);
-          const note: MidiNote = { id: crypto.randomUUID(), pitch, startBeat: snap ? Math.round(beat * 4) / 4 : beat, durationBeats: 1, velocity: 90 };
-          updateTrack(selectedPatternTrack.id, { notes: [...selectedPatternTrack.notes, note] });
-          setSelectedNote(note.id);
+          createMidiNoteAt(selectedPatternTrack.id, beat, pitch);
         }}>
           {Array.from({ length: 128 }, (_, index) => <div key={index} className={`piano-row ${isBlackKey(127 - index) ? "black-key-row" : ""}`}><span className="piano-key">{pitchName(127 - index)}</span></div>)}
-          {selectedPatternTrack?.notes.map((note) => <PianoNote key={note.id} note={note} selected={note.id === selectedNote} beatWidth={beatSeconds * pixelsPerSecond} snap={snap} onSelect={() => { setSelectedNote(note.id); setSelectedTrack(selectedPatternTrack.id); }} onChange={(update) => updateNote(selectedPatternTrack.id, note.id, update)} />)}
+          {selectedPatternTrack?.notes.map((note) => <PianoNote key={note.id} note={note} selected={note.id === selectedNote} beatWidth={beatSeconds * pixelsPerSecond} snap={snap} tool={editTool} onSelect={() => { setSelectedNote(note.id); setSelectedTrack(selectedPatternTrack.id); }} onChange={(update) => updateNote(selectedPatternTrack.id, note.id, update)} onDelete={() => removeNote(note.id)} onSplit={() => splitMidiNote(note.id)} onContextMenu={(x, y) => { setSelectedNote(note.id); setSelectedTrack(selectedPatternTrack.id); setContextMenu({ kind: "note", noteId: note.id, trackId: selectedPatternTrack.id, x, y }); }} />)}
         </div>
         {!selectedPatternTrack && <div className="piano-hint">Choose an instrument, sampler, or drum track to edit MIDI notes. Click the grid to place a note.</div>}
         {selectedPatternTrack?.type === "unsupported" && <div className="piano-hint">This track’s MIDI is preserved but cannot play until you recover it as a supported instrument.</div>}
@@ -833,16 +1135,35 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         <div className="recording-hint" data-testid="status-recording-setup">Input monitoring can produce feedback or delay; headphones are recommended. {session.tracks.some((track) => track.recordArmed) ? "An audio track is armed. Press Record to capture input." : "Arm an audio track with R in the track header before recording."}</div>
       </div>}
     </section>
+    {contextMenu && <div className="workstation-context-backdrop" data-testid="workstation-context-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setContextMenu(null); }}>
+      <div className="workstation-context-menu" role="menu" data-testid="workstation-context-menu" style={{ left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - 190)), top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 160)) }} onContextMenu={(event) => event.preventDefault()}>
+        <span className="context-menu-heading">{contextMenu.kind === "clip" ? "Audio clip" : "MIDI note"}</span>
+        <button role="menuitem" data-testid="context-duplicate" onClick={() => {
+          if (contextMenu.kind === "clip") duplicateClipById(contextMenu.clipId);
+          else duplicateNote(contextMenu.noteId);
+          setContextMenu(null);
+        }}>Duplicate</button>
+        <button role="menuitem" data-testid="context-split" onClick={() => { if (contextMenu.kind === "clip") splitClipById(contextMenu.clipId); else splitMidiNote(contextMenu.noteId); setContextMenu(null); }}>Split at playhead</button>
+        <button role="menuitem" className="context-danger" data-testid="context-delete" onClick={() => {
+          if (contextMenu.kind === "clip") removeClip(contextMenu.clipId);
+          else removeNote(contextMenu.noteId);
+          setContextMenu(null);
+        }}>Delete</button>
+      </div>
+    </div>}
+    {shortcutDialogOpen && <ShortcutsDialog bindings={shortcutBindings} platform={platform} onApply={applyShortcutProfile} onClose={() => setShortcutDialogOpen(false)} />}
   </main>;
 }
 
-function ClipBlock({ clip, selected, pps, snap, snapStep, onSelect, onUpdate, onDelete }: {
+function ClipBlock({ clip, selected, pps, snap, snapStep, tool, onSelect, onUpdate, onDelete, onSplit, onContextMenu }: {
   clip: AudioClip; selected: boolean; pps: number; snap: boolean; snapStep: number; onSelect: () => void;
-  onUpdate: (update: Partial<AudioClip>) => void; onDelete: () => void;
+  tool: EditTool; onUpdate: (update: Partial<AudioClip>) => void; onDelete: () => void;
+  onSplit: () => void; onContextMenu: (x: number, y: number) => void;
 }) {
   const drag = useRef<{ x: number; start: number; duration: number; edge: "move" | "left" | "right" } | null>(null);
   const [preview, setPreview] = useState<{ start: number; duration: number; source: number } | null>(null);
   const begin = (event: PointerEvent<HTMLElement>, edge: "move" | "left" | "right") => {
+    if (event.button !== 0 || tool === "erase" || tool === "split") return;
     event.preventDefault(); event.stopPropagation(); onSelect();
     drag.current = { x: event.clientX, start: clip.startSeconds, duration: clip.durationSeconds, edge };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -880,7 +1201,7 @@ function ClipBlock({ clip, selected, pps, snap, snapStep, onSelect, onUpdate, on
   const waveformStart = Math.floor(sourceStart / sourceDuration * clip.waveform.length);
   const waveformEnd = Math.ceil((sourceStart + width) / sourceDuration * clip.waveform.length);
   const visibleWaveform = clip.waveform.slice(waveformStart, Math.max(waveformStart + 1, waveformEnd));
-  return <div className={`audio-clip ${selected ? "selected" : ""}`} data-testid={`clip-${clip.id}`} style={{ left: `${start * pps}px`, width: `${Math.max(74, width * pps)}px` }} onClick={(event) => { event.stopPropagation(); onSelect(); }} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish}>
+  return <div className={`audio-clip ${selected ? "selected" : ""}`} data-testid={`clip-${clip.id}`} style={{ left: `${start * pps}px`, width: `${Math.max(74, width * pps)}px` }} onClick={(event) => { event.stopPropagation(); if (tool === "erase") onDelete(); else if (tool === "split") onSplit(); else onSelect(); }} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onContextMenu(event.clientX, event.clientY); }} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish}>
     <button className="trim-edge trim-left" data-testid={`trim-left-${clip.id}`} aria-label="Trim clip start" onPointerDown={(event) => begin(event, "left")} />
     <div className="clip-body" onPointerDown={(event) => begin(event, "move")}><div className="clip-topline"><span className="clip-label">{clip.name}</span><button data-testid={`button-delete-clip-${clip.id}`} aria-label={`Delete ${clip.name}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onDelete(); }}><X size={12} /></button></div>
       <div className="waveform">{visibleWaveform.map((value, index) => <span key={index} style={{ height: `${Math.max(4, value * 82)}%` }} />)}</div>
@@ -890,15 +1211,20 @@ function ClipBlock({ clip, selected, pps, snap, snapStep, onSelect, onUpdate, on
   </div>;
 }
 
-function PianoNote({ note, selected, beatWidth, snap, onSelect, onChange }: {
-  note: MidiNote; selected: boolean; beatWidth: number; snap: boolean; onSelect: () => void; onChange: (update: Partial<MidiNote>) => void;
+function PianoNote({ note, selected, beatWidth, snap, tool, onSelect, onChange, onDelete, onSplit, onContextMenu }: {
+  note: MidiNote; selected: boolean; beatWidth: number; snap: boolean; tool: EditTool;
+  onSelect: () => void; onChange: (update: Partial<MidiNote>) => void; onDelete: () => void;
+  onSplit: () => void; onContextMenu: (x: number, y: number) => void;
 }) {
   const drag = useRef<PianoNoteDragState | null>(null);
   const [offset, setOffset] = useState<{ startBeat: number; durationBeats: number; pitch: number } | null>(null);
   const start = offset?.startBeat ?? note.startBeat;
   const duration = offset?.durationBeats ?? note.durationBeats;
   const pitch = offset?.pitch ?? note.pitch;
-  return <div className={`piano-note ${selected ? "selected" : ""}`} data-testid={`piano-note-${note.id}`} style={{ left: `${start * beatWidth}px`, width: `${Math.max(14, duration * beatWidth)}px`, top: `${(127 - pitch) * 15}px` }} onPointerDown={(event) => {
+  return <div className={`piano-note ${selected ? "selected" : ""} ${tool === "erase" ? "eraser-target" : ""}`} data-testid={`piano-note-${note.id}`} style={{ left: `${start * beatWidth}px`, width: `${Math.max(14, duration * beatWidth)}px`, top: `${(127 - pitch) * 15}px` }} onPointerDown={(event) => {
+    if (event.button !== 0) return;
+    if (tool === "erase") { event.stopPropagation(); onDelete(); return; }
+    if (tool === "split") return;
     event.stopPropagation(); event.preventDefault(); onSelect();
     drag.current = {
       pointerStartX: event.clientX,
@@ -909,7 +1235,7 @@ function PianoNote({ note, selected, beatWidth, snap, onSelect, onChange }: {
       resize: (event.target as HTMLElement).classList.contains("note-resize"),
     };
     event.currentTarget.setPointerCapture(event.pointerId);
-  }} onPointerMove={(event) => {
+  }} onClick={(event) => { event.stopPropagation(); if (tool === "split") onSplit(); }} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onContextMenu(event.clientX, event.clientY); }} onPointerMove={(event) => {
     if (!drag.current) return;
     setOffset(getPianoNoteDragUpdate(
       drag.current,
