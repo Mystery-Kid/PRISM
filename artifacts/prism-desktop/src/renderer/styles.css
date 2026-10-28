@@ -507,7 +507,9 @@ button:disabled { opacity: .38; cursor: not-allowed !important; }
 .danger-button { color: #e0aaaa; }
 .panel-empty { color: #85858d; font-size: 10px; }
 .piano-panel { height: 180px; display: flex; flex-direction: column; }
-.piano-tools { min-height: 42px; padding: 5px 12px; display: flex; align-items: center; gap: 15px; border-bottom: 1px solid #28282c; }
+.piano-tools { min-height: 48px; flex-shrink: 0; padding: 5px 12px; display: flex; align-items: center; gap: 15px; overflow-x: auto; border-bottom: 1px solid #28282c; }
+.piano-tools label { flex-shrink: 0; white-space: nowrap; }
+.piano-tools input[type="number"] { width: 64px; }
 .piano-tools input[type="range"] { width: 88px; accent-color: #caa36f; }
 .piano-grid { position: relative; flex: 1; min-height: 0; overflow: auto; background: repeating-linear-gradient(90deg, transparent 0 calc(54px - 1px), #ffffff10 calc(54px - 1px) 54px); cursor: crosshair; }
 .piano-row { position: relative; height: 15px; border-bottom: 1px solid #ffffff0b; background: #1c1c1f33; }

@@ -36,6 +36,7 @@ const effectLabels: Record<EffectType, string> = {
 };
 const emptySnapshot: AudioEngineSnapshot = {
   status: "stopped",
+  error: null,
   recording: false,
   position: 0,
   sampleRate: null,
@@ -70,6 +71,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const [notice, setNotice] = useState("");
   const [historyAvailability, setHistoryAvailability] = useState({ canUndo: false, canRedo: false });
   const timelineRef = useRef<HTMLDivElement>(null);
+  const pianoGridRef = useRef<HTMLDivElement>(null);
   const history = useRef<{ states: SongSession[]; index: number }>({
     states: [structuredClone(initialSession)],
     index: 0,
@@ -84,6 +86,12 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const selectedInstrument = session.tracks.find((track) => track.id === selectedTrack && track.type === "instrument");
 
   useEffect(() => {
+    if (panel !== "piano" || !pianoGridRef.current) return;
+    const pitch = selectedInstrument?.notes.find((note) => note.id === selectedNote)?.pitch ?? 60;
+    pianoGridRef.current.scrollTop = Math.max(0, (127 - pitch) * 15 - 45);
+  }, [panel, selectedTrack, selectedNote]);
+
+  useEffect(() => {
     history.current = { states: [structuredClone(initialSession)], index: 0 };
     setHistoryAvailability({ canUndo: false, canRedo: false });
     if (session.id !== initialSession.id) {
@@ -92,6 +100,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       setSelectedTrack(initialSession.tracks[0]?.id ?? "");
     }
     setSelectedClip(null);
+    setSelectedNote(null);
     setSnapshot({ ...emptySnapshot });
   }, [initialSession.id]);
 
@@ -183,6 +192,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       if (!engine) return;
       const next = engine.snapshot();
       setSnapshot(next);
+      if (next.error) setEngineError(next.error);
       setRecording(next.recording);
     }, 80);
     return () => window.clearInterval(timer);
@@ -544,7 +554,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
             <div className="track-column-heading">TRACKS</div>
             <div className="timeline-ruler" style={{ width: `${timelineWidth - 240}px` }} onClick={(event) => {
               const bounds = event.currentTarget.getBoundingClientRect();
-              seek(Math.max(0, (event.clientX - bounds.left + (timelineRef.current?.scrollLeft ?? 0)) / pixelsPerSecond));
+              seek(Math.max(0, (event.clientX - bounds.left) / pixelsPerSecond));
             }}>
           {Array.from({ length: Math.ceil(duration / barSeconds) + 2 }, (_, index) => <div className="ruler-mark" key={index} style={{ left: `${index * barSeconds * pixelsPerSecond}px` }}><span>{String(index + 1).padStart(2, "0")}</span></div>)}
               {session.loopRange?.enabled && <div className="loop-region" style={{ left: `${session.loopRange.startSeconds * pixelsPerSecond}px`, width: `${Math.max(12, (session.loopRange.endSeconds - session.loopRange.startSeconds) * pixelsPerSecond)}px` }} />}
@@ -568,7 +578,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
               setSelectedTrack(track.id);
               if ((event.target as HTMLElement).closest(".audio-clip, .midi-note")) return;
               const bounds = event.currentTarget.getBoundingClientRect();
-              seek((event.clientX - bounds.left + (timelineRef.current?.scrollLeft ?? 0)) / pixelsPerSecond);
+              seek((event.clientX - bounds.left) / pixelsPerSecond);
             }}>
               {Array.from({ length: Math.ceil(duration / barSeconds) + 2 }, (_, index) => <div key={index} className="lane-gridline" style={{ left: `${index * barSeconds * pixelsPerSecond}px` }} />)}
               {track.clips.map((clip) => <ClipBlock key={clip.id} clip={clip} selected={selectedClip === clip.id} pps={pixelsPerSecond} snapStep={beatSeconds / 4} snap={snap} onSelect={() => { setSelectedTrack(track.id); setSelectedClip(clip.id); setPanel("clip"); }} onUpdate={(update) => updateClip(track.id, clip.id, update)} onDelete={() => removeClip(clip.id)} />)}
@@ -616,21 +626,21 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
             updateTrack(selectedInstrument.id, { notes: [...selectedInstrument.notes, note] });
             setSelectedNote(note.id);
           }}><Plus size={13} /> Add note</button>
-          {selectedNote && <><label>Pitch<input data-testid="input-note-pitch" type="number" min="0" max="127" value={session.tracks.flatMap((track) => track.notes).find((note) => note.id === selectedNote)?.pitch ?? 60} onChange={(event) => { const note = session.tracks.flatMap((track) => track.notes).find((item) => item.id === selectedNote); if (note) { const owner = session.tracks.find((track) => track.notes.some((item) => item.id === note.id)); if (owner) updateNote(owner.id, note.id, { pitch: clamp(Number(event.target.value), 0, 127) }); } }} /></label>
+          {selectedInstrument?.notes.some((note) => note.id === selectedNote) && <><label>Pitch<input data-testid="input-note-pitch" type="number" min="0" max="127" value={session.tracks.flatMap((track) => track.notes).find((note) => note.id === selectedNote)?.pitch ?? 60} onChange={(event) => { const note = session.tracks.flatMap((track) => track.notes).find((item) => item.id === selectedNote); if (note) { const owner = session.tracks.find((track) => track.notes.some((item) => item.id === note.id)); if (owner) updateNote(owner.id, note.id, { pitch: Math.round(clamp(Number(event.target.value), 0, 127)) }); } }} /></label>
             <label>Velocity<input data-testid="input-note-velocity" type="range" min="1" max="127" value={session.tracks.flatMap((track) => track.notes).find((note) => note.id === selectedNote)?.velocity ?? 92} onChange={(event) => { const note = session.tracks.flatMap((track) => track.notes).find((item) => item.id === selectedNote); const owner = session.tracks.find((track) => track.notes.some((item) => item.id === selectedNote)); if (note && owner) updateNote(owner.id, note.id, { velocity: Number(event.target.value) }); }} /></label>
             <button className="icon-button compact danger-hover" data-testid="button-delete-midi-note" title="Delete selected note" onClick={() => { setSession((current) => ({ ...current, tracks: current.tracks.map((track) => ({ ...track, notes: track.notes.filter((note) => note.id !== selectedNote) })) })); setSelectedNote(null); }}><Trash2 size={13} /></button></>}
         </div>
-        <div className="piano-grid" data-testid="piano-roll" onClick={(event) => {
+        <div className="piano-grid" ref={pianoGridRef} data-testid="piano-roll" onClick={(event) => {
           if ((event.target as HTMLElement).closest(".piano-key, .piano-note")) return;
           if (!selectedInstrument) { setNotice("Add an instrument track to create MIDI notes."); return; }
           const bounds = event.currentTarget.getBoundingClientRect();
-          const beat = (event.clientX - bounds.left) / (beatSeconds * pixelsPerSecond);
-          const pitch = clamp(84 - Math.floor((event.clientY - bounds.top) / 15), 36, 84);
+          const beat = Math.max(0, (event.clientX - bounds.left + event.currentTarget.scrollLeft) / (beatSeconds * pixelsPerSecond));
+          const pitch = clamp(127 - Math.floor((event.clientY - bounds.top + event.currentTarget.scrollTop) / 15), 0, 127);
           const note: MidiNote = { id: crypto.randomUUID(), pitch, startBeat: snap ? Math.round(beat * 4) / 4 : beat, durationBeats: 1, velocity: 90 };
           updateTrack(selectedInstrument.id, { notes: [...selectedInstrument.notes, note] });
           setSelectedNote(note.id);
         }}>
-          {Array.from({ length: 49 }, (_, index) => <div key={index} className={`piano-row ${isBlackKey(84 - index) ? "black-key-row" : ""}`}><span>{pitchName(84 - index)}</span></div>)}
+          {Array.from({ length: 128 }, (_, index) => <div key={index} className={`piano-row ${isBlackKey(127 - index) ? "black-key-row" : ""}`}><span className="piano-key">{pitchName(127 - index)}</span></div>)}
           {selectedInstrument?.notes.map((note) => <PianoNote key={note.id} note={note} selected={note.id === selectedNote} beatWidth={beatSeconds * pixelsPerSecond} snap={snap} onSelect={() => { setSelectedNote(note.id); setSelectedTrack(selectedInstrument.id); }} onChange={(update) => updateNote(selectedInstrument.id, note.id, update)} />)}
         </div>
         {!selectedInstrument && <div className="piano-hint">Choose an instrument track to edit notes. Click the grid to place a note.</div>}
@@ -728,7 +738,7 @@ function PianoNote({ note, selected, beatWidth, snap, onSelect, onChange }: {
   const start = offset?.startBeat ?? note.startBeat;
   const duration = offset?.durationBeats ?? note.durationBeats;
   const pitch = offset?.pitch ?? note.pitch;
-  return <div className={`piano-note ${selected ? "selected" : ""}`} data-testid={`piano-note-${note.id}`} style={{ left: `${start * beatWidth}px`, width: `${Math.max(14, duration * beatWidth)}px`, top: `${(84 - pitch) * 15}px` }} onPointerDown={(event) => {
+  return <div className={`piano-note ${selected ? "selected" : ""}`} data-testid={`piano-note-${note.id}`} style={{ left: `${start * beatWidth}px`, width: `${Math.max(14, duration * beatWidth)}px`, top: `${(127 - pitch) * 15}px` }} onPointerDown={(event) => {
     event.stopPropagation(); event.preventDefault(); onSelect();
     drag.current = {
       pointerStartX: event.clientX,

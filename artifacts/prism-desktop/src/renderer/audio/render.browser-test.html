@@ -8,9 +8,33 @@
     <pre id="result">RUNNING</pre>
     <script type="module">
       import { renderSessionWav } from "./render.ts";
+      import { AudioEngine } from "./AudioEngine.ts";
 
       const result = document.getElementById("result");
+      const report = (message) => fetch("/__prism_audio_test_result", {
+        method: "POST",
+        body: JSON.stringify(message),
+      });
+      const assert = (condition, message) => { if (!condition) throw new Error(message); };
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const pcmRms = (bytes, fromSeconds = 0.1, toSeconds = 0.3) => {
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        let sum = 0, count = 0;
+        for (let frame = Math.floor(fromSeconds * 48000); frame < Math.floor(toSeconds * 48000); frame++) {
+          const offset = 44 + frame * 4;
+          if (offset + 1 >= bytes.byteLength) break;
+          const sample = view.getInt16(offset, true) / 32768;
+          sum += sample * sample;
+          count++;
+        }
+        return Math.sqrt(sum / Math.max(1, count));
+      };
+      const render = (session) => renderSessionWav(session, async () => {
+        throw new Error("The MIDI-only render must not request audio assets.");
+      });
+      let engine;
       try {
+        await report({ progress: "rendering MIDI and checking the exported PCM samples" });
         const session = {
           id: "midi-render-test",
           releaseId: "release-test",
@@ -48,9 +72,7 @@
           }],
         };
 
-        const wav = await renderSessionWav(session, async () => {
-          throw new Error("The MIDI-only render must not request audio assets.");
-        });
+        const wav = await render(session);
         const view = new DataView(wav.buffer, wav.byteOffset, wav.byteLength);
         if (
           view.getUint32(0, false) !== 0x52494646 ||
@@ -67,11 +89,129 @@
           peak = Math.max(peak, Math.abs(view.getInt16(offset, true)));
         }
         if (peak < 500) throw new Error(`The rendered MIDI output is silent (peak ${peak}).`);
-        result.textContent = `PASS: rendered MIDI WAV has ${wav.byteLength} bytes; peak ${peak}.`;
+        const track = {
+          ...session.tracks[0],
+          volume: 1,
+          instrument: { ...session.tracks[0].instrument, waveform: "sine" },
+          notes: [{ id: "held", pitch: 69, startBeat: 0, durationBeats: 2, velocity: 100 }],
+        };
+        const single = { ...session, tracks: [track] };
+        const singleWav = await render(single);
+        const fullLevel = pcmRms(singleWav);
+        const singleView = new DataView(singleWav.buffer, singleWav.byteOffset, singleWav.byteLength);
+        let crossings = 0;
+        for (let frame = 4801; frame < 14400; frame++) {
+          if (singleView.getInt16(44 + (frame - 1) * 4, true) <= 0 &&
+              singleView.getInt16(44 + frame * 4, true) > 0) crossings++;
+        }
+        assert(Math.abs(crossings / 0.2 - 440) < 8, "The rendered note has the wrong pitch.");
+        assert(pcmRms(singleWav, 0.98, 1) < fullLevel * 0.15, "The note did not release at its saved duration.");
+        const delayed = await render({ ...single, tracks: [{
+          ...track, notes: [{ ...track.notes[0], startBeat: 1 }],
+        }] });
+        assert(pcmRms(delayed, 0, 0.45) === 0 && pcmRms(delayed, 0.6, 0.8) > 0.03,
+          "The saved MIDI onset timing was not respected.");
+        const quarterMaster = pcmRms(await render({ ...single, masterVolume: 0.25 }));
+        const quarterTrack = pcmRms(await render({ ...single, tracks: [{ ...track, volume: 0.25 }] }));
+        const halfVelocity = pcmRms(await render({
+          ...single, tracks: [{ ...track, notes: [{ ...track.notes[0], velocity: 50 }] }],
+        }));
+        assert(Math.abs(quarterMaster / fullLevel - 0.25) < 0.01, "The master level was not applied to WAV output.");
+        assert(Math.abs(quarterTrack / fullLevel - 0.25) < 0.01, "The track level was not applied to WAV output.");
+        assert(Math.abs(halfVelocity / fullLevel - 0.5) < 0.01, "Velocity did not scale the rendered performance.");
+        const muted = await render({ ...single, tracks: [{ ...track, muted: true }] });
+        assert(pcmRms(muted) === 0, "A muted instrument leaked into the export.");
+        const zeroTrack = await render({ ...single, tracks: [{ ...track, volume: 0 }] });
+        assert(pcmRms(zeroTrack, 0, 0.1) === 0, "A zero-level instrument leaked into the export.");
+
+        const eq = await render({ ...single, tracks: [{
+          ...track,
+          effects: [{ id: "eq", type: "equalizer", enabled: true, parameters: { frequency: 440, gain: -18, q: 1 } }],
+        }] });
+        assert(pcmRms(eq) < fullLevel * 0.3, "Track processing did not affect the instrument export.");
+        const chord = await render({ ...single, tracks: [{
+          ...track,
+          notes: [60, 64, 69].map((pitch, index) => ({ ...track.notes[0], id: `chord-${index}`, pitch, velocity: 40 })),
+        }] });
+        const quietSingle = await render({ ...single, tracks: [{
+          ...track, notes: [{ ...track.notes[0], velocity: 40 }],
+        }] });
+        assert(pcmRms(chord) > pcmRms(quietSingle) * 1.4, "Polyphonic notes did not render together.");
+        const bufferContext = new OfflineAudioContext(1, 12000, 48000);
+        const audioBuffer = bufferContext.createBuffer(1, 12000, 48000);
+        const samples = audioBuffer.getChannelData(0);
+        for (let i = 0; i < samples.length; i++) samples[i] = Math.sin(2 * Math.PI * 220 * i / 48000) * 0.2;
+        const audioWav = await renderSessionWav({ ...single, tracks: [{
+          ...track, type: "audio", instrument: null, notes: [],
+          clips: [{
+            id: "audio-clip", assetId: "audio-asset", name: "Audio regression",
+            startSeconds: 0, durationSeconds: 0.25, sourceStartSeconds: 0,
+            sourceDurationSeconds: 0.25, gain: 1, fadeInSeconds: 0, fadeOutSeconds: 0, waveform: [],
+          }],
+        }] }, async () => audioBuffer);
+        assert(pcmRms(audioWav, 0.05, 0.15) > 0.03, "Existing audio-clip rendering became silent.");
+
+        // Real Web Audio graph checks use Chromium's silent sink, clock and meters.
+        // They do not claim sound was heard through a physical Windows device.
+        await report({ progress: "checking live MIDI playback and transport cleanup" });
+        engine = new AudioEngine(() => { throw new Error("Unexpected audio asset request."); });
+        const liveTrack = { ...track, notes: [{ ...track.notes[0], durationBeats: 8 }], muted: true };
+        const live = { ...single, tracks: [liveTrack] };
+        const cancelled = engine.start(live);
+        engine.stop(true);
+        await cancelled;
+        assert(engine.snapshot().status === "stopped", "Pending Play restarted after Stop.");
+        // This container has no physical output device. Chromium's silent sink
+        // renders the actual graph without depending on a host audio callback.
+        await engine.context.setSinkId({ type: "none" });
+
+        await engine.start(live);
+        await wait(300);
+        assert(engine.snapshot().meters[track.id].peak < 0.005, "Muted live instrument was audible.");
+        const unmuted = { ...live, tracks: [{ ...liveTrack, muted: false }] };
+        engine.updateSession(unmuted);
+        await wait(160);
+        assert(engine.snapshot().meters[track.id].peak > 0.03,
+          `Unmuting a held note stayed silent: ${JSON.stringify(engine.snapshot())}; context=${engine.context.state}/${engine.context.currentTime}; sources=${engine.sources.size}`);
+        assert(engine.snapshot().meters.master.peak > 0.03, "The instrument did not reach the master meter.");
+        const soloTrack = { ...track, id: "empty-solo", type: "audio", instrument: null, notes: [], solo: true };
+        const soloSession = { ...unmuted, tracks: [...unmuted.tracks, soloTrack] };
+        engine.updateSession(soloSession);
+        await wait(250);
+        assert(engine.snapshot().meters[track.id].peak < 0.005, "Solo did not gate the other instrument.");
+        engine.updateSession({ ...soloSession, tracks: [...unmuted.tracks, { ...soloTrack, solo: false }] });
+        await wait(160);
+        assert(engine.snapshot().meters[track.id].peak > 0.03, "Unsoloing lost the held note.");
+
+        engine.seek(1);
+        await wait(250);
+        assert(engine.snapshot().position >= 1, "Seek did not restore the requested timeline position.");
+        assert(engine.snapshot().meters.master.peak > 0.03, "Seek lost an overlapping MIDI note.");
+        engine.pause();
+        assert(engine.snapshot().status === "stopped", "Pause left the transport running.");
+        const looped = { ...unmuted, loopRange: { enabled: true, startSeconds: 0.1, endSeconds: 0.4 } };
+        await engine.start(looped, 0.1);
+        await wait(800);
+        const loopPosition = engine.snapshot().position;
+        assert(loopPosition >= 0.1 && loopPosition <= 0.4, "Loop playback left its bounds.");
+        engine.stop(true);
+        await wait(100);
+        assert(engine.snapshot().meters.master.peak < 0.005, "Stop left an instrument voice sounding.");
+        assert(engine.snapshot().position === 0, "Return to start did not reset position.");
+        const pendingDispose = engine.start(live).catch(() => undefined);
+        await engine.dispose();
+        await pendingDispose;
+        assert(engine.snapshot().status === "stopped", "Closing a project restarted its audio.");
+        engine = null;
+
+        result.textContent = `PASS: MIDI rendering, velocity, polyphony, track/master levels, processing, mute/solo, seek, loop, stop and disposal; WAV peak ${peak}.`;
         document.body.dataset.testResult = "pass";
       } catch (error) {
         result.textContent = `FAIL: ${error instanceof Error ? error.message : String(error)}`;
         document.body.dataset.testResult = "fail";
+      } finally {
+        await engine?.dispose();
+        await report({ result: result.textContent });
       }
     </script>
   </body>

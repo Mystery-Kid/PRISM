@@ -24,6 +24,8 @@ export function createTrackGraph(
   const input = context.createGain();
   const pan = context.createStereoPanner();
   const fader = context.createGain();
+  fader.gain.value = track.muted ? 0 : track.volume;
+  pan.pan.value = track.pan;
   const analyser = context.createAnalyser();
   analyser.fftSize = 512;
   analyser.smoothingTimeConstant = 0.7;
@@ -98,6 +100,7 @@ export function createMasterGraph(
 ): MasterGraph {
   const input = context.createGain();
   const fader = context.createGain();
+  fader.gain.value = Math.max(0, Math.min(1.5, volume));
   const analyser = context.createAnalyser();
   analyser.fftSize = 1024;
   analyser.smoothingTimeConstant = 0.75;

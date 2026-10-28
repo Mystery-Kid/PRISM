@@ -23,6 +23,7 @@ export type EngineStatus = "stopped" | "playing" | "recording";
 
 export type AudioEngineSnapshot = {
   status: EngineStatus;
+  error: string | null;
   recording: boolean;
   position: number;
   sampleRate: number | null;
@@ -46,6 +47,11 @@ const startLeadSeconds = 0.12;
 
 export class AudioEngine {
   private context: AudioContext | null = null;
+  private captureReady: Promise<void> | null = null;
+  private lastError: string | null = null;
+  private disposed = false;
+  private playbackGeneration = 0;
+  private starting = false;
   private session: SongSession | null = null;
   private assetUrl: (assetId: string) => string;
   private decodedAssets = new Map<string, AudioBuffer>();
@@ -79,12 +85,16 @@ export class AudioEngine {
   }
 
   private async ensureContext(): Promise<AudioContext> {
+    if (this.disposed) throw new Error("This song's audio engine has been closed.");
     if (!this.context) {
       this.context = new AudioContext({ latencyHint: "interactive" });
-      await this.context.audioWorklet.addModule(captureProcessorUrl);
     }
-    if (this.context.state === "suspended") await this.context.resume();
-    return this.context;
+    const context = this.context;
+    if (context.state === "suspended") await context.resume();
+    if (this.disposed || this.context !== context) {
+      throw new Error("This song's audio engine has been closed.");
+    }
+    return context;
   }
 
   async listDevices(): Promise<{ inputs: AudioDevice[]; outputs: AudioDevice[] }> {
@@ -115,6 +125,7 @@ export class AudioEngine {
     if (this.master) meters.master = readMeter(this.master.analyser);
     return {
       status: this.running ? "playing" : "stopped",
+      error: this.lastError,
       recording: Boolean(this.recordingId),
       position: this.positionNow(),
       sampleRate: this.context?.sampleRate ?? null,
@@ -131,36 +142,56 @@ export class AudioEngine {
     position = this.playhead,
     options: { allowEmpty?: boolean; startAt?: number } = {},
   ): Promise<void> {
-    const context = await this.ensureContext();
-    await this.loadSessionAudio(session);
-    session = withDecodedClipDurations(session, this.decodedAssets);
+    if (this.disposed) throw new Error("This song's audio engine has been closed.");
+    const generation = ++this.playbackGeneration;
+    this.starting = true;
     this.session = session;
-    this.syncGraphs(session);
-    const duration = getSessionDuration(session);
-    if (!options.allowEmpty && duration <= 0) {
-      throw new Error("Add an audio clip or instrument note before starting playback.");
+    this.lastError = null;
+    try {
+      const context = await this.ensureContext();
+      if (this.disposed || generation !== this.playbackGeneration) return;
+      await this.loadSessionAudio(session);
+      if (this.disposed || generation !== this.playbackGeneration) return;
+      session = this.session ?? session;
+      session = withDecodedClipDurations(session, this.decodedAssets);
+      this.session = session;
+      this.syncGraphs(session);
+      const duration = getSessionDuration(session);
+      if (!options.allowEmpty && duration <= 0) {
+        throw new Error("Add an audio clip or instrument note before starting playback.");
+      }
+      this.stopScheduledSources();
+      this.clearScheduler();
+      const loop = session.loopRange?.enabled ? session.loopRange : null;
+      let from = Math.max(0, position);
+      if (loop && from >= loop.endSeconds) from = loop.startSeconds;
+      this.playhead = from;
+      this.anchorTimeline = from;
+      this.anchorAudioTime = options.startAt ?? context.currentTime + startLeadSeconds;
+      this.nextTimelinePosition = from;
+      this.nextAudioTime = this.anchorAudioTime;
+      this.running = true;
+      this.fillSchedule(context.currentTime + scheduleAheadSeconds);
+      this.scheduler = setInterval(() => {
+        if (!this.context || !this.running) return;
+        this.fillSchedule(this.context.currentTime + scheduleAheadSeconds);
+        this.finishIfAtEnd();
+      }, scheduleIntervalMs);
+    } catch (cause) {
+      if (!this.disposed && generation === this.playbackGeneration) {
+        this.lastError = cause instanceof Error ? cause.message : "Playback could not start.";
+        this.pause();
+      }
+      throw cause;
+    } finally {
+      if (generation === this.playbackGeneration) this.starting = false;
     }
-    this.stopScheduledSources();
-    this.clearScheduler();
-    const loop = session.loopRange?.enabled ? session.loopRange : null;
-    let from = Math.max(0, position);
-    if (loop && from >= loop.endSeconds) from = loop.startSeconds;
-    this.playhead = from;
-    this.anchorTimeline = from;
-    this.anchorAudioTime = options.startAt ?? context.currentTime + startLeadSeconds;
-    this.nextTimelinePosition = from;
-    this.nextAudioTime = this.anchorAudioTime;
-    this.running = true;
-    this.fillSchedule(context.currentTime + scheduleAheadSeconds);
-    this.scheduler = setInterval(() => {
-      if (!this.context || !this.running) return;
-      this.fillSchedule(this.context.currentTime + scheduleAheadSeconds);
-      this.finishIfAtEnd();
-    }, scheduleIntervalMs);
   }
 
   pause(): number {
     const position = this.positionNow();
+    this.playbackGeneration += 1;
+    this.starting = false;
     this.running = false;
     this.playhead = position;
     this.clearScheduler();
@@ -177,25 +208,21 @@ export class AudioEngine {
   seek(position: number): void {
     if (this.recordingId) return;
     const target = Math.max(0, Math.min(getSessionDuration(this.session), position));
-    const wasRunning = this.running;
+    const wasRunning = this.running || this.starting;
     this.playhead = target;
     if (wasRunning && this.session) {
-      void this.start(this.session, target).catch(() => {
-        this.running = false;
-      });
+      void this.start(this.session, target).catch(() => undefined);
     }
   }
 
   updateSession(next: SongSession): void {
     const previous = this.session;
     const position = this.positionNow();
-    const wasRunning = this.running;
+    const wasRunning = this.running || this.starting;
     this.session = next;
     this.syncGraphs(next);
     if (wasRunning && previous && needsReschedule(previous, next)) {
-      void this.start(next, position).catch(() => {
-        this.running = false;
-      });
+      void this.start(next, position).catch(() => undefined);
     }
   }
 
@@ -217,6 +244,10 @@ export class AudioEngine {
     }
 
     const context = await this.ensureContext();
+    // Capture code is only needed for recording; a worklet load failure must
+    // not prevent ordinary audio or built-in instrument playback.
+    this.captureReady ??= context.audioWorklet.addModule(captureProcessorUrl);
+    await this.captureReady;
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -385,6 +416,10 @@ export class AudioEngine {
   }
 
   async dispose(): Promise<void> {
+    this.disposed = true;
+    this.playbackGeneration += 1;
+    this.starting = false;
+    this.running = false;
     if (this.recordingId) await this.stopRecording().catch(() => undefined);
     this.clearScheduler();
     this.stopScheduledSources();
@@ -394,6 +429,7 @@ export class AudioEngine {
     this.master = null;
     await this.context?.close();
     this.context = null;
+    this.captureReady = null;
     this.decodedAssets.clear();
   }
 
@@ -515,9 +551,9 @@ export class AudioEngine {
     contextFrom: number,
   ): void {
     if (!this.context || timelineTo <= timelineFrom) return;
-    const isSoloed = session.tracks.some((track) => track.solo);
     for (const track of session.tracks) {
-      if (track.muted || (isSoloed && !track.solo)) continue;
+      // Keep voices scheduled behind the fader so unmute/unsolo can restore
+      // an already-held note immediately, not only future note-on events.
       const graph = this.tracks.get(track.id);
       if (!graph) continue;
       for (const clip of track.clips) {
@@ -736,6 +772,7 @@ export class AudioEngine {
 
 function needsReschedule(previous: SongSession, next: SongSession): boolean {
   if (
+    previous.id !== next.id ||
     previous.tempo !== next.tempo ||
     previous.timeSignature !== next.timeSignature ||
     previous.metronomeEnabled !== next.metronomeEnabled ||

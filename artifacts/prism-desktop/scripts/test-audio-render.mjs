@@ -1,46 +1,76 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createServer } from "vite";
 
 const chromium = process.env.CHROMIUM_PATH || "chromium";
+const profile = await mkdtemp(join(tmpdir(), "prism-audio-test-"));
+let browser;
+let timer;
+let lastProgress = "loading the test page";
+let stderr = "";
+let resolveResult;
+let rejectResult;
+const completion = new Promise((resolve, reject) => {
+  resolveResult = resolve;
+  rejectResult = reject;
+});
+const receiveResult = (request, response) => {
+  let body = "";
+  request.on("data", (chunk) => { body += chunk; });
+  request.on("end", () => {
+    try {
+      const message = JSON.parse(body);
+      response.end("ok");
+      if (message.progress) lastProgress = message.progress;
+      else if (message.result?.startsWith("PASS:")) resolveResult(message.result);
+      else rejectResult(new Error(message.result || "The browser returned no result."));
+    } catch (error) {
+      response.statusCode = 400;
+      response.end("invalid result");
+      rejectResult(error);
+    }
+  });
+};
 const server = await createServer({
   configFile: false,
   root: process.cwd(),
   server: { host: "127.0.0.1", port: 0, strictPort: false },
   logLevel: "error",
+  plugins: [{
+    name: "prism-audio-test-results",
+    configureServer(vite) {
+      vite.middlewares.use("/__prism_audio_test_result", receiveResult);
+    },
+  }],
 });
 
 try {
   await server.listen();
   const address = server.httpServer.address();
   if (!address || typeof address === "string") throw new Error("Vite did not open a local test port.");
-
   const url = `http://127.0.0.1:${address.port}/src/renderer/audio/render.browser-test.html`;
-  const result = spawnSync(chromium, [
-    "--headless",
-    "--no-sandbox",
-    "--disable-gpu",
-    "--disable-dev-shm-usage",
-    "--timeout=15000",
-    "--dump-dom",
-    url,
-  ], {
-    encoding: "utf8",
-    timeout: 30_000,
-    maxBuffer: 4 * 1024 * 1024,
-  });
-  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    throw new Error(`Chromium exited with status ${result.status}: ${result.stderr?.slice(-2000) ?? ""}`);
-  }
-  const pass = output.match(/<pre id="result">([^<]+)<\/pre>/)?.[1];
-  if (!pass?.startsWith("PASS:")) {
-    throw new Error(
-      output.match(/<pre id="result">([^<]+)<\/pre>/)?.[1] ??
-        `The browser render test did not report a result.\n${output.slice(-4000)}`,
-    );
-  }
-  console.log(pass);
+  browser = spawn(chromium, [
+    "--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+    "--autoplay-policy=no-user-gesture-required",
+    "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
+    `--user-data-dir=${profile}`, url,
+  ], { stdio: ["ignore", "ignore", "pipe"] });
+  browser.stderr.on("data", (data) => { stderr = (stderr + data).slice(-4000); });
+  browser.once("error", rejectResult);
+  browser.once("exit", (code) => rejectResult(new Error(`Chromium exited early (${code}).\n${stderr}`)));
+  timer = setTimeout(() => {
+    rejectResult(new Error(`Audio check timed out while ${lastProgress}.\n${stderr}`));
+  }, 45_000);
+  console.log(await completion);
 } finally {
+  clearTimeout(timer);
+  if (browser?.pid && browser.exitCode === null && browser.signalCode === null) {
+    browser.kill("SIGKILL");
+    await once(browser, "exit");
+  }
   await server.close();
+  await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
