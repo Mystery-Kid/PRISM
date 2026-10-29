@@ -18,7 +18,7 @@ import type {
 import { createDefaultDrumKit, createDefaultSamplerState } from "@shared/instrument-tracks";
 import { AudioEngine, type AudioDevice, type AudioEngineSnapshot } from "../audio/AudioEngine";
 import { secondsPerBeat } from "../audio/time";
-import { getPianoNoteDragUpdate, splitMidiNoteAt, type PianoNoteDragState } from "./piano-roll";
+import { getPianoNoteDragUpdate, pasteMidiNotes, splitMidiNoteAt, type PianoNoteDragState } from "./piano-roll";
 import { EffectsPanel } from "./EffectsPanel";
 import { RoutingPanel } from "./RoutingPanel";
 import { SamplerPanel } from "./SamplerPanel";
@@ -1065,15 +1065,29 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         let firstAudioId: string | null = null;
         let firstMidiId: string | null = null;
         let firstNoteId: string | null = null;
-        setSession((current) => ({
-          ...current,
-          tracks: current.tracks.map((track) => {
+        // Allocate paste identities before scheduling state, so menu and key
+        // commands select the same copies even when React defers the updater.
+        const pastedTracks = session.tracks.map((track) => {
             const entries = clipboard.filter((entry) => entry.trackId === track.id);
             if (!entries.length) return track;
             let clips = [...track.clips];
             let midiClips = [...(track.midiClips ?? [])];
             let notes = [...track.notes];
-            let pasteNoteClip = midiClips.find((clip) => clip.id === selectedMidiClip) ?? null;
+            const noteEntries = entries.filter((entry): entry is Extract<ClipboardEntry, { kind: "note" }> => entry.kind === "note");
+            if (noteEntries.length) {
+              const pasted = pasteMidiNotes({
+                notes: noteEntries.map((entry) => entry.value),
+                clips: midiClips,
+                selectedClipId: selectedMidiClip,
+                playheadBeat: snapshot.position / beatSeconds,
+                sourceOriginBeat: origin / beatSeconds,
+                createId: () => crypto.randomUUID(),
+              });
+              midiClips = pasted.clips;
+              notes.push(...pasted.notes);
+              firstMidiId ??= pasted.clipId;
+              firstNoteId ??= pasted.notes[0]?.id ?? null;
+            }
             for (const entry of entries) {
               const offsetSeconds = sourceStarts[clipboard.indexOf(entry)] - origin;
               if (entry.kind === "audio") {
@@ -1091,36 +1105,11 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
                   ...note, id: crypto.randomUUID(), midiClipId: clipId,
                   startBeat: note.startBeat + noteShift,
                 })));
-              } else {
-                if (!pasteNoteClip) {
-                  const startBeat = snapshot.position / beatSeconds;
-                  const maxOffsetBeats = Math.max(0, ...entries
-                    .filter((item): item is Extract<ClipboardEntry, { kind: "note" }> => item.kind === "note")
-                    .map((item) => item.value.startBeat * beatSeconds - origin));
-                  pasteNoteClip = {
-                    id: crypto.randomUUID(),
-                    name: "MIDI Clip",
-                    startBeat,
-                    durationBeats: Math.max(4, maxOffsetBeats + entry.value.durationBeats),
-                  };
-                  midiClips.push(pasteNoteClip);
-                  firstMidiId ??= pasteNoteClip.id;
-                }
-                const clipEnd = pasteNoteClip.startBeat + pasteNoteClip.durationBeats;
-                const proposedStart = snapshot.position / beatSeconds + offsetSeconds / beatSeconds;
-                const noteStart = Math.max(pasteNoteClip.startBeat, Math.min(proposedStart, clipEnd - .125));
-                const copy: MidiNote = {
-                  ...entry.value, id: crypto.randomUUID(),
-                  startBeat: noteStart,
-                  durationBeats: Math.max(.125, Math.min(entry.value.durationBeats, clipEnd - noteStart)),
-                  midiClipId: pasteNoteClip.id,
-                };
-                notes.push(copy); firstNoteId ??= copy.id;
               }
             }
             return { ...track, clips, midiClips, notes };
-          }),
-        }));
+          });
+        setSession((current) => ({ ...current, tracks: pastedTracks }));
         if (firstAudioId) setSelectedClip(firstAudioId);
         if (firstMidiId) setSelectedMidiClip(firstMidiId);
         if (firstNoteId) setSelectedNote(firstNoteId);

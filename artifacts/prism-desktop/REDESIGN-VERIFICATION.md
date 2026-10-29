@@ -33,6 +33,12 @@ rejects invalid clip identities/timing or lost saved arrangement metadata.
   (a confirmation was added), and a stale save-error banner after recovery
   (successful Save now clears it). These small fixes were checked by build/type
   checks and source inspection rather than another full browser pass.
+- A completion review caught note-paste clamping outside a selected MIDI clip
+  and a seconds/beats mix-up in multi-note paste. The actual command now uses a
+  shared renderer paste planner with regressions for pasting beyond a clip,
+  preserving an eight-beat gap at 120 BPM, extending a clip without shortening
+  notes, and retaining cross-track offsets. Paste identities are planned before
+  scheduling state so deferred React updates do not lose copy selection.
 - Windows GitHub Actions builds the NSIS installer, installs it, then starts that
   installed executable twice with isolated user data. Both launches exercise the
   real sandboxed preload and IPC; the second verifies persisted MIDI, tempo,
