@@ -1,11 +1,14 @@
 import type {
   AudioClip,
+  AudioBus,
+  BusSend,
   EffectState,
   InstrumentState,
   MidiNote,
   SongSession,
   Track,
 } from "./types";
+import { validateAudioRouting } from "./audio-routing";
 import { normalizeEffectState } from "./effect-definitions";
 
 const waveforms = new Set(["sine", "square", "sawtooth", "triangle"]);
@@ -28,6 +31,40 @@ function migrateEffects(value: unknown): EffectState[] {
     const normalized = normalizeEffectState(effect);
     return normalized ? [normalized] : [];
   });
+}
+
+function migrateSends(value: unknown): BusSend[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("A saved audio send list is damaged.");
+  return value.flatMap((item) => {
+    const send = record(item);
+    if (typeof send.busId !== "string" || !send.busId.trim()) return [];
+    const id = typeof send.id === "string" && send.id.trim() ? send.id : crypto.randomUUID();
+    return [{
+      id,
+      busId: send.busId,
+      level: Math.min(1.5, Math.max(0, finite(send.level, 1))),
+      placement: send.placement === "pre" ? "pre" : "post",
+    }];
+  });
+}
+
+function migrateBus(value: unknown, index: number): AudioBus {
+  const bus = record(value);
+  return {
+    id: typeof bus.id === "string" && bus.id.trim() ? bus.id : crypto.randomUUID(),
+    name: typeof bus.name === "string" && bus.name.trim()
+      ? bus.name.trim().slice(0, 80)
+      : `Bus ${index + 1}`,
+    level: Math.min(1.5, Math.max(0, finite(bus.level, 1))),
+    muted: bus.muted === true,
+    solo: bus.solo === true,
+    outputBusId: typeof bus.outputBusId === "string" && bus.outputBusId.trim()
+      ? bus.outputBusId
+      : null,
+    sends: migrateSends(bus.sends),
+    effects: migrateEffects(bus.effects),
+  };
 }
 
 function migrateClip(value: unknown): AudioClip | null {
@@ -111,6 +148,10 @@ function migrateTrack(value: unknown, index: number): Track {
     notes,
     instrument: type === "instrument" ? migrateInstrument(track.instrument) : null,
     effects: migrateEffects(track.effects),
+    outputBusId: typeof track.outputBusId === "string" && track.outputBusId.trim()
+      ? track.outputBusId
+      : null,
+    sends: migrateSends(track.sends),
   };
 }
 
@@ -126,6 +167,13 @@ export function migrateSongSession(value: unknown): SongSession {
   const tracks = Array.isArray(session.tracks)
     ? session.tracks.map(migrateTrack)
     : [];
+  if (session.buses !== undefined && !Array.isArray(session.buses)) {
+    throw new Error("The saved audio buses are damaged.");
+  }
+  const buses = Array.isArray(session.buses)
+    ? session.buses.map(migrateBus)
+    : [];
+  validateAudioRouting(tracks, buses);
   const rawLoop = record(session.loopRange);
   const startSeconds = Math.max(0, finite(rawLoop.startSeconds, 0));
   const endSeconds = Math.max(0, finite(rawLoop.endSeconds, 0));
@@ -142,6 +190,7 @@ export function migrateSongSession(value: unknown): SongSession {
     metronomeEnabled: session.metronomeEnabled === true,
     masterVolume: Math.min(1.5, Math.max(0, finite(session.masterVolume, 1))),
     masterEffects: migrateEffects(session.masterEffects),
+    buses,
     tracks,
     updatedAt: typeof session.updatedAt === "string" ? session.updatedAt : new Date().toISOString(),
   };

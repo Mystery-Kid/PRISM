@@ -35,20 +35,26 @@ import type {
 type EffectsPanelProps = {
   session: SongSession;
   selectedTrackId: string;
+  selectedBusId: string;
   onSelectTrack: (trackId: string) => void;
+  onSelectBus: (busId: string) => void;
   onUpdateTrackEffects: (trackId: string, effects: EffectState[]) => void;
+  onUpdateBusEffects: (busId: string, effects: EffectState[]) => void;
   onUpdateMasterEffects: (effects: EffectState[]) => void;
   onNotice: (message: string) => void;
 };
 
 type PresetScope = "global" | "project";
-type ChainTarget = "track" | "master";
+type ChainTarget = "track" | "bus" | "master";
 
 export function EffectsPanel({
   session,
   selectedTrackId,
+  selectedBusId,
   onSelectTrack,
+  onSelectBus,
   onUpdateTrackEffects,
+  onUpdateBusEffects,
   onUpdateMasterEffects,
   onNotice,
 }: EffectsPanelProps) {
@@ -62,8 +68,19 @@ export function EffectsPanel({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const selectedTrack = session.tracks.find((track) => track.id === selectedTrackId) ?? null;
-  const activeTarget = target === "track" && selectedTrack ? "track" : "master";
-  const effects = activeTarget === "master" ? session.masterEffects : selectedTrack?.effects ?? [];
+  const selectedBus = session.buses.find((bus) => bus.id === selectedBusId) ?? null;
+  const activeTarget = target === "track" && selectedTrack
+    ? "track"
+    : target === "bus" && selectedBus
+      ? "bus"
+      : target === "master"
+        ? "master"
+        : "master";
+  const effects = activeTarget === "master"
+    ? session.masterEffects
+    : activeTarget === "bus"
+      ? selectedBus?.effects ?? []
+      : selectedTrack?.effects ?? [];
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +93,10 @@ export function EffectsPanel({
     });
     return () => { cancelled = true; };
   }, [session.releaseId]);
+
+  useEffect(() => {
+    setTarget(selectedBusId ? "bus" : "track");
+  }, [selectedBusId]);
 
   const filteredEffects = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -94,6 +115,7 @@ export function EffectsPanel({
 
   const updateChain = (next: EffectState[]) => {
     if (activeTarget === "master") onUpdateMasterEffects(next);
+    else if (activeTarget === "bus" && selectedBus) onUpdateBusEffects(selectedBus.id, next);
     else if (selectedTrack) onUpdateTrackEffects(selectedTrack.id, next);
   };
 
@@ -290,8 +312,13 @@ export function EffectsPanel({
       <div className="effects-section-title"><strong>Ordered chain</strong>
         <label className="effect-target">
           <span>Target</span>
-          <select data-testid="select-effect-chain-target" value={activeTarget} onChange={(event) => setTarget(event.target.value as ChainTarget)}>
+          <select data-testid="select-effect-chain-target" value={activeTarget} onChange={(event) => {
+            const next = event.target.value as ChainTarget;
+            setTarget(next);
+            if (next === "bus" && !selectedBusId && session.buses[0]) onSelectBus(session.buses[0].id);
+          }}>
             <option value="track" disabled={!selectedTrack}>Track</option>
+            <option value="bus" disabled={session.buses.length === 0}>Bus</option>
             <option value="master">Master</option>
           </select>
         </label>
@@ -300,6 +327,12 @@ export function EffectsPanel({
         <span>Track</span>
         <select data-testid="select-effect-track" value={selectedTrack?.id ?? ""} onChange={(event) => onSelectTrack(event.target.value)}>
           {session.tracks.map((track) => <option key={track.id} value={track.id}>{track.name}</option>)}
+        </select>
+      </label>}
+      {activeTarget === "bus" && <label className="effect-track-target">
+        <span>Bus</span>
+        <select data-testid="select-effect-bus" value={selectedBus?.id ?? ""} onChange={(event) => onSelectBus(event.target.value)}>
+          {session.buses.map((bus) => <option key={bus.id} value={bus.id}>{bus.name}</option>)}
         </select>
       </label>}
       {effects.length > 0

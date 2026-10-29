@@ -38,6 +38,7 @@ import {
   visibleEffectPresets,
 } from "../shared/effect-presets";
 import { normalizeEffectChain } from "../shared/effect-definitions";
+import { validateAudioRouting } from "../shared/audio-routing";
 import type {
   AudioClip,
   CreateReleaseInput,
@@ -69,7 +70,7 @@ protocol.registerSchemesAsPrivileged([
 
 type StoredAsset = ProjectAsset & { storageName: string };
 type ProjectLibrary = {
-  version: 3;
+  version: 4;
   releases: Release[];
   sessions: SongSession[];
   assets: StoredAsset[];
@@ -98,7 +99,7 @@ let closeApproved = false;
 const activeRecordings = new Map<string, ActiveRecording>();
 
 function emptyLibrary(): ProjectLibrary {
-  return { version: 3, releases: [], sessions: [], assets: [], effectPresets: [] };
+  return { version: 4, releases: [], sessions: [], assets: [], effectPresets: [] };
 }
 
 async function persistLibrary(): Promise<void> {
@@ -121,7 +122,7 @@ async function readLibrary(): Promise<ProjectLibrary> {
       typeof parsed !== "object" ||
       parsed === null ||
       !("version" in parsed) ||
-      ![1, 2, 3].includes(Number(parsed.version)) ||
+      ![1, 2, 3, 4].includes(Number(parsed.version)) ||
       !("releases" in parsed) ||
       !Array.isArray(parsed.releases) ||
       !("sessions" in parsed) ||
@@ -131,11 +132,11 @@ async function readLibrary(): Promise<ProjectLibrary> {
     ) {
       throw new Error("The PRISM project library has an unsupported or damaged format.");
     }
-    if (parsed.version === 3 && (!("effectPresets" in parsed) || !Array.isArray(parsed.effectPresets))) {
+    if (Number(parsed.version) >= 3 && (!("effectPresets" in parsed) || !Array.isArray(parsed.effectPresets))) {
       throw new Error("The PRISM effect-preset library is damaged; the project file was not changed.");
     }
     const normalized: ProjectLibrary = {
-      version: 3,
+      version: 4,
       releases: parsed.releases as Release[],
       sessions: parsed.sessions.map(migrateSongSession),
       assets: parsed.assets as StoredAsset[],
@@ -143,7 +144,7 @@ async function readLibrary(): Promise<ProjectLibrary> {
         ? parsed.effectPresets.map(normalizeStoredEffectPreset)
         : [],
     };
-    if (parsed.version !== 3 || !("effectPresets" in parsed) || !Array.isArray(parsed.effectPresets)) {
+    if (parsed.version !== 4) {
       library = normalized;
       await persistLibrary();
     }
@@ -193,6 +194,8 @@ function freshTrack(name = "Audio 1", type: Track["type"] = "audio"): Track {
       ? { waveform: "sawtooth", attack: 0.01, decay: 0.12, sustain: 0.65, release: 0.18 }
       : null,
     effects: [],
+    outputBusId: null,
+    sends: [],
   };
 }
 
@@ -207,6 +210,7 @@ function freshSession(releaseId: string, title: string): SongSession {
     metronomeEnabled: false,
     masterVolume: 1,
     masterEffects: [],
+    buses: [],
     tracks: [freshTrack()],
     updatedAt: new Date().toISOString(),
   };
@@ -626,10 +630,43 @@ function registerIpcHandlers(): void {
       new Set(updated.tracks.map((track) => track.id)).size !== updated.tracks.length
     ) throw new Error("The session contains invalid transport or track settings.");
     const masterEffects = normalizeEffectChain(updated.masterEffects);
+    if (!Array.isArray(updated.buses)) {
+      if (updated.buses !== undefined || current.buses.length > 0) {
+        throw new Error("The session is missing its saved audio buses.");
+      }
+    }
+    const busesWithValidatedEffects = (updated.buses ?? []).map((bus) => ({
+      ...bus,
+      name: bus.name.trim(),
+      sends: bus.sends ?? [],
+      outputBusId: bus.outputBusId ?? null,
+      effects: normalizeEffectChain(bus.effects),
+    }));
     const tracksWithValidatedEffects = updated.tracks.map((track) => ({
       ...track,
+      outputBusId: track.outputBusId ?? null,
+      sends: track.sends ?? [],
       effects: normalizeEffectChain(track.effects),
     }));
+    for (const track of updated.tracks) {
+      const previous = current.tracks.find((entry) => entry.id === track.id);
+      if (
+        (track.outputBusId === undefined && previous?.outputBusId) ||
+        (track.sends === undefined && previous?.sends.length)
+      ) {
+        throw new Error(`The saved routing for "${track.name}" is incomplete.`);
+      }
+    }
+    for (const bus of updated.buses ?? []) {
+      const previous = current.buses.find((entry) => entry.id === bus.id);
+      if (
+        (bus.outputBusId === undefined && previous?.outputBusId) ||
+        (bus.sends === undefined && previous?.sends.length)
+      ) {
+        throw new Error(`The saved routing for "${bus.name}" is incomplete.`);
+      }
+    }
+    validateAudioRouting(tracksWithValidatedEffects, busesWithValidatedEffects);
     if (
       updated.loopRange?.enabled &&
       (!Number.isFinite(updated.loopRange.startSeconds) ||
@@ -683,6 +720,7 @@ function registerIpcHandlers(): void {
     const saved = {
       ...updated,
       tracks: tracksWithValidatedEffects,
+      buses: busesWithValidatedEffects,
       masterEffects,
       title: cleanTitle(updated.title),
       tempo: Math.min(300, Math.max(20, Math.round(updated.tempo))),

@@ -61,6 +61,24 @@ export type EffectState = {
   parameters: Record<string, number>;
 };
 
+export type BusSend = {
+  id: string;
+  busId: string;
+  level: number;
+  placement: "pre" | "post";
+};
+
+export type AudioBus = {
+  id: string;
+  name: string;
+  level: number;
+  muted: boolean;
+  solo: boolean;
+  outputBusId: string | null;
+  sends: BusSend[];
+  effects: EffectState[];
+};
+
 export type JsonValue =
   | string
   | number
@@ -115,6 +133,8 @@ export type Track = {
   notes: MidiNote[];
   instrument: InstrumentState | null;
   effects: EffectState[];
+  outputBusId: string | null;
+  sends: BusSend[];
 };
 
 export type SongSession = {
@@ -127,6 +147,7 @@ export type SongSession = {
   metronomeEnabled: boolean;
   masterVolume: number;
   masterEffects: EffectState[];
+  buses: AudioBus[];
   tracks: Track[];
   updatedAt: string;
 };

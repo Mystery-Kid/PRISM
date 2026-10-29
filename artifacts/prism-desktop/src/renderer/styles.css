@@ -489,6 +489,7 @@ button:disabled { opacity: .38; cursor: not-allowed !important; }
 .arrangement-footer { min-height: 25px; }
 .workstation-bottom { flex: 0 0 218px; min-height: 160px; background: #171719; border-top: 1px solid #343438; overflow: hidden; }
 .workstation-bottom.effects-open { flex-basis: min(360px, 40vh); min-height: 250px; }
+.workstation-bottom.routing-open { flex-basis: min(440px, 50vh); min-height: 290px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .lower-panel-tabs { height: 34px; }
 .lower-tab { gap: 6px; }
@@ -576,10 +577,12 @@ button:disabled { opacity: .38; cursor: not-allowed !important; }
 }
 @media (max-width: 690px) {
   .workstation-bottom.effects-open { flex-basis: min(420px, 54vh); min-height: 280px; }
+  .workstation-bottom.routing-open { flex-basis: min(490px, 60vh); min-height: 330px; }
   .effects-workspace { grid-template-columns: repeat(3, minmax(245px, 1fr)); }
 }
 @media (max-height: 650px) {
   .workstation-bottom.effects-open { flex-basis: 280px; min-height: 210px; }
+  .workstation-bottom.routing-open { flex-basis: 320px; min-height: 260px; }
 }
 .devices-panel { height: 180px; padding: 17px 18px; display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 .devices-panel label { flex-direction: column; align-items: flex-start; gap: 6px; }
