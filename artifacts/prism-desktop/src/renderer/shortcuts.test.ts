@@ -6,12 +6,31 @@ import {
   getDefaultShortcutBindings,
   getShortcutPlatform,
   isEditableTarget,
+  loadShortcutBindings,
   matchesShortcut,
   normalizeShortcut,
   parseShortcutProfile,
   serializeShortcutProfile,
   shortcutFromEvent,
 } from "./shortcuts";
+
+test("saved shortcut conflicts remain editable and produce an explicit warning", () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  try {
+    const bindings = getDefaultShortcutBindings();
+    bindings["edit.addNote"] = "N";
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: { getItem: () => serializeShortcutProfile(bindings) },
+    });
+    const loaded = loadShortcutBindings();
+    assert.match(loaded.error, /conflicts.*N/);
+    assert.equal(loaded.bindings["edit.addNote"], "N", "Custom assignments must not be silently reset.");
+  } finally {
+    if (previous) Object.defineProperty(globalThis, "localStorage", previous);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  }
+});
 
 function keyEvent(overrides: Partial<KeyboardEvent> = {}): KeyboardEvent {
   return {

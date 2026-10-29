@@ -293,7 +293,14 @@ export function loadShortcutBindings(): { bindings: ShortcutBindings; error: str
   try {
     const stored = localStorage.getItem(shortcutStorageKey);
     if (!stored) return { bindings: defaults, error: "" };
-    return { bindings: parseShortcutProfile(JSON.parse(stored)), error: "" };
+    const bindings = parseShortcutProfile(JSON.parse(stored));
+    const conflicts = findShortcutConflicts(bindings);
+    return {
+      bindings,
+      error: conflicts.length
+        ? `Saved shortcut conflicts (${conflicts.map((item) => item.binding).join(", ")}). Resolve them in Preferences > Shortcuts; ambiguous shortcuts will not run.`
+        : "",
+    };
   } catch (cause) {
     return {
       bindings: defaults,

@@ -24,7 +24,7 @@ import { RoutingPanel } from "./RoutingPanel";
 import { SamplerPanel } from "./SamplerPanel";
 import { DrumPanel } from "./DrumPanel";
 import { ShortcutsDialog } from "./ShortcutsDialog";
-import { getAllowedBusTargets } from "@shared/audio-routing";
+import { getAllowedBusTargets, maxAudioBuses } from "@shared/audio-routing";
 import prismLogo from "../assets/prism-logo.png";
 import {
   activeShortcutContext,
@@ -524,6 +524,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     setSnapshot((old) => ({ ...old, position }));
   };
   const addTrack = (type: Extract<TrackType, "audio" | "instrument" | "sampler" | "drum">) => {
+    document.querySelector('[data-testid="button-add-track"]')?.closest("details")?.removeAttribute("open");
     const number = session.tracks.filter((track) => track.type === type).length + 1;
     const track: Track = {
       id: crypto.randomUUID(),
@@ -545,6 +546,25 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         : type === "drum" ? "drums" : "mixer");
     setActiveEditor(activeShortcutContext(type === "sampler" ? "sampler" : type === "drum" ? "drums" : "mixer"));
     return track;
+  };
+  const addBus = () => {
+    document.querySelector('[data-testid="button-add-track"]')?.closest("details")?.removeAttribute("open");
+    if (session.buses.length >= maxAudioBuses) {
+      setNotice(`A project can have at most ${maxAudioBuses} buses.`);
+      return;
+    }
+    let number = session.buses.length + 1;
+    while (session.buses.some((bus) => bus.name.toLowerCase() === `bus ${number}`)) number++;
+    setSession((current) => ({
+      ...current,
+      buses: [...current.buses, {
+        id: crypto.randomUUID(), name: `Bus ${number}`, level: 1,
+        muted: false, solo: false, outputBusId: null, sends: [], effects: [],
+      }],
+    }));
+    setPanel("routing");
+    setActiveEditor("routing");
+    setNotice("Bus created. Choose it as a track output or send in Routing to feed it audio.");
   };
   const createMidiClip = (trackId = selectedTrack) => {
     const track = session.tracks.find((item) => item.id === trackId);
@@ -1285,10 +1305,16 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       if (event.key === " " && typeof element?.closest === "function" &&
           element.closest("button, a, [role='button']")) return;
       const context = shortcutStateRef.current.activeEditor;
-      const command = shortcutRegistry.find((item) =>
+      const commands = shortcutRegistry.filter((item) =>
         commandIsActive(item, context) &&
         matchesShortcut(event, shortcutStateRef.current.bindings[item.id], platform),
       );
+      if (commands.length > 1) {
+        event.preventDefault();
+        setNotice("This shortcut has conflicting assignments. Open Preferences > Shortcuts to resolve them.");
+        return;
+      }
+      const command = commands[0];
       if (!command) return;
       const repeatable = [
         "transport.stepBack", "transport.stepForward",
@@ -1318,6 +1344,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       else if (action === "insert.instrument") addTrack("instrument");
       else if (action === "insert.drum") addTrack("drum");
       else if (action === "insert.sampler") addTrack("sampler");
+      else if (action === "insert.bus") addBus();
       else if (action === "insert.import") void importAudio();
       else if (action === "insert.midi") {
         const currentTrack = selectedPatternTrack && ["instrument", "sampler", "drum"].includes(selectedPatternTrack.type)
@@ -1366,6 +1393,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       { label: "MIDI / Instrument Track", action: "insert.instrument" },
       { label: "Drum Track", action: "insert.drum" },
       { label: "Sampler Track", action: "insert.sampler" },
+      { label: "Bus Track", action: "insert.bus", disabled: session.buses.length >= maxAudioBuses },
       { separator: true, label: "" },
       { label: "MIDI Clip", action: "insert.midi" },
       { label: "Import Audio…", action: "insert.import" },
@@ -1516,6 +1544,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
                 <button role="menuitem" data-testid="add-track-instrument" onClick={() => addTrack("instrument")}>MIDI / Instrument</button>
                 <button role="menuitem" data-testid="add-track-drum" onClick={() => addTrack("drum")}>Drum Track</button>
                 <button role="menuitem" data-testid="add-track-sampler" onClick={() => addTrack("sampler")}>Sampler Track</button>
+                <button role="menuitem" data-testid="add-track-bus" disabled={session.buses.length >= maxAudioBuses} title={session.buses.length >= maxAudioBuses ? `Maximum ${maxAudioBuses} buses` : "Create a routable audio bus"} onClick={addBus}>Bus Track</button>
               </div>
             </details></div>
             <div className="timeline-ruler" style={{ width: `${timelineWidth - 240}px` }} onClick={(event) => {
