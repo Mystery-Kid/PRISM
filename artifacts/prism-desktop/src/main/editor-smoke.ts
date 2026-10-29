@@ -48,7 +48,7 @@ export async function verifyInstalledEditor(window: BrowserWindow, directory: st
     await pause();
     for (let step = 1; step <= 3; step++) {
       window.webContents.sendInputEvent({ type: "mouseMove", x: Math.round(x + dx * step / 3),
-        y: Math.round(y + dy * step / 3), button: "left" });
+        y: Math.round(y + dy * step / 3), button: "left", modifiers: ["leftbuttondown"] });
       await pause();
     }
     window.webContents.sendInputEvent({ type: "mouseUp", x: Math.round(x + dx), y: Math.round(y + dy),
@@ -61,6 +61,15 @@ export async function verifyInstalledEditor(window: BrowserWindow, directory: st
   window.focus();
   window.webContents.focus();
   await evaluate(`
+    window.__prismSmokePointerLog = [];
+    for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'lostpointercapture']) {
+      document.addEventListener(type, event => {
+        const log = window.__prismSmokePointerLog;
+        log.push({type, x:event.clientX, y:event.clientY, buttons:event.buttons,
+          target:event.target?.closest?.('[data-testid]')?.dataset.testid});
+        if(log.length > 120) log.shift();
+      }, true);
+    }
     await wait(() => $('timeline-lane-smoke-instrument'), 'instrument lane');
     assert(!document.querySelector('[data-testid="button-add-midi-clip"]'), 'Old MIDI Clip toolbar remains');
     await wait(async () => {
@@ -139,6 +148,7 @@ export async function verifyInstalledEditor(window: BrowserWindow, directory: st
     assert(notes.some(note => note.id !== 'smoke-note' && note.pitch === 61), 'Alt did not preserve chromatic pitch');
     assert(notes.find(note => note.id === 'smoke-note').pitch === 61, 'Original note changed');
   `);
+  await writeFile(join(directory, "editor-before-drag.png"), (await window.webContents.capturePage()).toPNG());
   await drag(`piano-note-${createdNoteId}`, 0, -15);
   await evaluate(`
     await wait(async () => (await stored()).tracks[0].notes.find(note => note.id === ${JSON.stringify(createdNoteId)}).pitch === 62,

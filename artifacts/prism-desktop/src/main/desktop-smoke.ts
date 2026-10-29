@@ -95,7 +95,20 @@ export async function runDesktopSmoke(window: BrowserWindow, directory: string, 
     app.exit(0);
   } catch (error) {
     clearTimeout(timer);
-    await writeFile(report, JSON.stringify({ ok: false, error: error instanceof Error ? error.stack : String(error) }, null, 2));
+    const diagnostics = await window.webContents.executeJavaScript(`(async () => {
+      const releases = await window.prism.listReleases();
+      const session = await window.prism.getSession(releases[0].songIds[0]);
+      return {notes:session.tracks[0].notes, songKey:session.songKey, midiView:session.midiView,
+        pointerEvents:window.__prismSmokePointerLog,
+        noteRects:Array.from(document.querySelectorAll('.piano-note')).map(element => {
+          const rect=element.getBoundingClientRect();
+          return {id:element.dataset.testid, rect:rect.toJSON(),
+            centerTarget:document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2)?.outerHTML.slice(0,200)};
+        })};
+    })()`).catch(() => null);
+    await window.webContents.capturePage().then((image) =>
+      writeFile(join(directory, "editor-failure.png"), image.toPNG())).catch(() => undefined);
+    await writeFile(report, JSON.stringify({ ok: false, error: error instanceof Error ? error.stack : String(error), diagnostics }, null, 2));
     app.exit(1);
   }
 }
