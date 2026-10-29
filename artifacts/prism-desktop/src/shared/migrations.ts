@@ -3,6 +3,9 @@ import type {
   EffectState,
   InstrumentState,
   MidiNote,
+  ProjectAsset,
+  Release,
+  ReleaseType,
   SongSession,
   Track,
 } from "./types";
@@ -10,6 +13,18 @@ import type {
 const effectTypes = new Set(["equalizer", "reverb", "delay", "compressor"]);
 const waveforms = new Set(["sine", "square", "sawtooth", "triangle"]);
 const trackColors = ["#f47b54", "#72c4be", "#b295e8", "#e4b85e", "#7c9ef2"];
+const releaseTypes = new Set<ReleaseType>(["Single", "EP", "Album", "LP", "Other"]);
+const assetStorageNamePattern =
+  /^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}\.(?:png|jpe?g|webp|wav|mp3|ogg|m4a|flac)$/i;
+
+export type StoredAsset = ProjectAsset & { storageName: string };
+
+export type ProjectLibrary = {
+  version: 3;
+  releases: Release[];
+  sessions: SongSession[];
+  assets: StoredAsset[];
+};
 
 function record(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -19,6 +34,132 @@ function record(value: unknown): Record<string, unknown> {
 
 function finite(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+export function isSafeAssetStorageName(value: unknown): value is string {
+  return typeof value === "string" && assetStorageNamePattern.test(value);
+}
+
+function migrateRelease(value: unknown): Release {
+  const release = record(value);
+  if (
+    typeof release.id !== "string" ||
+    !release.id.trim() ||
+    typeof release.title !== "string" ||
+    !release.title.trim()
+  ) {
+    throw new Error("A release in the project library is damaged.");
+  }
+  if (!releaseTypes.has(release.releaseType as ReleaseType)) {
+    throw new Error(`Release “${release.title}” has an unsupported type.`);
+  }
+  return {
+    ...release,
+    id: release.id,
+    title: release.title,
+    artistName: typeof release.artistName === "string" ? release.artistName : "",
+    releaseType: release.releaseType as ReleaseType,
+    customReleaseType: typeof release.customReleaseType === "string" ? release.customReleaseType : "",
+    description: typeof release.description === "string" ? release.description : "",
+    artworkAssetId: typeof release.artworkAssetId === "string" ? release.artworkAssetId : null,
+    createdAt: typeof release.createdAt === "string" ? release.createdAt : new Date().toISOString(),
+    updatedAt: typeof release.updatedAt === "string" ? release.updatedAt : new Date().toISOString(),
+    lastOpenedAt: typeof release.lastOpenedAt === "string" ? release.lastOpenedAt : null,
+    songIds: Array.isArray(release.songIds)
+      ? release.songIds.filter((id): id is string => typeof id === "string")
+      : [],
+  };
+}
+
+export function migrateProjectLibrary(value: unknown): ProjectLibrary {
+  const source = record(value);
+  const version = Number(source.version);
+  if (
+    ![1, 2, 3].includes(version) ||
+    !Array.isArray(source.releases) ||
+    !Array.isArray(source.sessions) ||
+    (source.assets !== undefined && !Array.isArray(source.assets)) ||
+    (version > 1 && !Array.isArray(source.assets))
+  ) {
+    throw new Error("The PRISM project library has an unsupported or damaged format.");
+  }
+
+  const releases = source.releases.map(migrateRelease);
+  if (new Set(releases.map((release) => release.id)).size !== releases.length) {
+    throw new Error("The PRISM project library contains duplicate release IDs.");
+  }
+
+  const sessions = source.sessions.map(migrateSongSession);
+  if (new Set(sessions.map((session) => session.id)).size !== sessions.length) {
+    throw new Error("The PRISM project library contains duplicate song IDs.");
+  }
+
+  const knownReleaseIds = new Set(releases.map((release) => release.id));
+  const orphanedSessions = sessions.filter((session) => !knownReleaseIds.has(session.releaseId));
+  if (orphanedSessions.length > 0) {
+    const now = new Date().toISOString();
+    const recoveredId = crypto.randomUUID();
+    const recovered: Release = {
+      id: recoveredId,
+      title: "Recovered Songs",
+      artistName: "",
+      releaseType: "Other",
+      customReleaseType: "",
+      description: "Songs recovered from project sessions with a missing release.",
+      artworkAssetId: null,
+      createdAt: now,
+      updatedAt: now,
+      lastOpenedAt: null,
+      songIds: orphanedSessions.map((session) => session.id),
+    };
+    orphanedSessions.forEach((session) => {
+      session.releaseId = recoveredId;
+    });
+    releases.unshift(recovered);
+  }
+
+  const sessionsById = new Map(sessions.map((session) => [session.id, session]));
+  for (const release of releases) {
+    const seen = new Set<string>();
+    const orderedIds = release.songIds.filter((id) => {
+      const session = sessionsById.get(id);
+      if (!session || session.releaseId !== release.id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+    for (const session of sessions) {
+      if (session.releaseId === release.id && !seen.has(session.id)) {
+        seen.add(session.id);
+        orderedIds.push(session.id);
+      }
+    }
+    release.songIds = orderedIds;
+  }
+
+  const rawAssets = Array.isArray(source.assets) ? source.assets : [];
+  const assets = rawAssets.map((value) => {
+    const asset = record(value);
+    if (
+      typeof asset.id !== "string" ||
+      typeof asset.fileName !== "string" ||
+      typeof asset.mimeType !== "string" ||
+      !isSafeAssetStorageName(asset.storageName)
+    ) {
+      throw new Error("A project media reference has an unsafe or damaged storage path.");
+    }
+    return {
+      ...asset,
+      id: asset.id,
+      fileName: asset.fileName,
+      mimeType: asset.mimeType,
+      storageName: asset.storageName,
+    };
+  });
+  if (new Set(assets.map((asset) => asset.id)).size !== assets.length) {
+    throw new Error("The PRISM project library contains duplicate media IDs.");
+  }
+
+  return { ...source, version: 3, releases, sessions, assets } as ProjectLibrary;
 }
 
 function migrateEffects(value: unknown): EffectState[] {
