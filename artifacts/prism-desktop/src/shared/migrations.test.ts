@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { migrateSongSession } from "./migrations";
+import { migrateProjectLibrary, migrateSongSession } from "./migrations";
 
 test("version-one song shape migrates while preserving clips and assets", () => {
   const migrated = migrateSongSession({
@@ -253,3 +253,108 @@ test("invalid drum state recovers with defaults while preserving raw state and M
     ],
   });
 });
+
+test("version-one project library upgrades to the current schema", () => {
+  const migrated = migrateProjectLibrary({
+    version: 1,
+    releases: [],
+    sessions: [],
+  });
+
+  assert.deepEqual(migrated, {
+    version: 5,
+    releases: [],
+    sessions: [],
+    assets: [],
+    effectPresets: [],
+  });
+});
+
+test("project migration rejects media paths outside the managed asset folder", () => {
+  assert.throws(() => migrateProjectLibrary({
+    version: 3,
+    releases: [],
+    sessions: [],
+    assets: [{
+      id: "asset-1",
+      fileName: "audio.wav",
+      mimeType: "audio/wav",
+      storageName: "../../outside.wav",
+    }],
+  }), /unsafe or damaged storage path/);
+});
+
+test("project migration preserves the saved order of songs in an album", () => {
+  const migrated = migrateProjectLibrary({
+    version: 2,
+    releases: [{
+      id: "release-1",
+      title: "Album",
+      releaseType: "Album",
+      songIds: ["song-b", "song-a"],
+    }],
+    sessions: ["song-a", "song-b"].map((id) => ({
+      id,
+      releaseId: "release-1",
+      title: id,
+      tempo: 120,
+      timeSignature: "4/4",
+      tracks: [],
+    })),
+    assets: [],
+  });
+  const reopened = migrateProjectLibrary(JSON.parse(JSON.stringify(migrated)));
+
+  assert.deepEqual(reopened.releases[0].songIds, ["song-b", "song-a"]);
+});
+
+test("core version-three libraries without presets remain compatible with effects builds", () => {
+  const migrated = migrateProjectLibrary({ version: 3, releases: [], sessions: [], assets: [] });
+  assert.deepEqual(migrated.effectPresets, []);
+});
+
+test("project migration preserves stored effect presets across reopening", () => {
+  const preset = {
+    id: "preset-1", name: "Saved chain", version: 1, scope: "global",
+    projectId: null, effects: [],
+    createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const migrated = migrateProjectLibrary({
+    version: 3, releases: [], sessions: [], assets: [], effectPresets: [preset],
+  });
+  const reopened = migrateProjectLibrary(JSON.parse(JSON.stringify(migrated)));
+  assert.deepEqual(reopened.effectPresets, [preset]);
+});
+
+test("project migration rejects malformed preset collections rather than clearing them", () => {
+  assert.throws(() => migrateProjectLibrary({
+    version: 3, releases: [], sessions: [], assets: [], effectPresets: null,
+  }), /effect-preset library is damaged/);
+});
+
+for (const version of [4, 5]) {
+  test(`version-${version} full libraries retain sampler notes and routing across reopening`, () => {
+    const migrated = migrateProjectLibrary({
+      version,
+      releases: [{ id: "release-1", title: "Full feature project", releaseType: "Single", songIds: ["song-1"] }],
+      sessions: [{
+        id: "song-1", releaseId: "release-1", title: "Sampled track", tempo: 120, timeSignature: "4/4",
+        buses: [{ id: "bus-1", name: "Sample Bus", outputBusId: null }],
+        tracks: [{
+          id: "sampler-1", name: "Sample", type: "sampler", outputBusId: "bus-1",
+          sampler: { sampleAssetId: "sample-id", rootNote: 60, gain: 0.8 },
+          notes: [{ id: "note-1", pitch: 60, startBeat: 0, durationBeats: 1, velocity: 96 }],
+        }],
+      }],
+      assets: [],
+      effectPresets: [],
+    });
+    const reopened = migrateProjectLibrary(JSON.parse(JSON.stringify(migrated)));
+    assert.equal(reopened.version, 5);
+    assert.deepEqual(reopened.sessions[0].buses, migrated.sessions[0].buses);
+    assert.deepEqual(reopened.sessions[0].tracks, migrated.sessions[0].tracks);
+    assert.equal(reopened.sessions[0].tracks[0].sampler?.sampleAssetId, "sample-id");
+    assert.equal(reopened.sessions[0].tracks[0].outputBusId, "bus-1");
+    assert.equal(reopened.sessions[0].tracks[0].notes[0].id, "note-1");
+  });
+}

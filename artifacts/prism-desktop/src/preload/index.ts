@@ -66,6 +66,8 @@ const bridge: AppBridge = {
   exportWav: (input) => ipcRenderer.invoke("prism:audio:export-wav", input),
   assetUrl: (assetId) => `prism-media://local/${encodeURIComponent(assetId)}`,
   openDataFolder: () => ipcRenderer.invoke("prism:app:open-data-folder"),
+  backupLibrary: () => ipcRenderer.invoke("prism:library:backup"),
+  restoreLibrary: () => ipcRenderer.invoke("prism:library:restore"),
   onCloseRequested: (callback) => {
     const listener = () => callback();
     ipcRenderer.on("prism:app:close-request", listener);

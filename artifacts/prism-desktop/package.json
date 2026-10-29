@@ -8,7 +8,7 @@
     "dev": "electron-vite dev",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "electron-vite build",
-    "test": "tsx --test src/shared/migrations.test.ts src/shared/audio-routing.test.ts src/shared/instrument-tracks.test.ts src/shared/effect-definitions.test.ts src/shared/effect-presets.test.ts src/main/atomic-write.test.ts src/renderer/audio/time.test.ts src/renderer/audio/timeline.test.ts src/renderer/audio/midi.test.ts src/renderer/components/piano-roll.test.ts src/renderer/audio/wav.test.ts src/renderer/shortcuts.test.ts src/renderer/session-history.test.ts",
+    "test": "tsx --test src/shared/migrations.test.ts src/shared/audio-routing.test.ts src/shared/instrument-tracks.test.ts src/shared/effect-definitions.test.ts src/shared/effect-presets.test.ts src/main/atomic-write.test.ts src/main/project-backup.test.ts src/main/theme-store.test.ts src/renderer/audio/time.test.ts src/renderer/audio/timeline.test.ts src/renderer/audio/midi.test.ts src/renderer/components/piano-roll.test.ts src/renderer/audio/wav.test.ts src/renderer/shortcuts.test.ts src/renderer/session-history.test.ts",
     "test:themes": "tsx --test src/main/theme-store.test.ts",
     "test:audio-render": "node scripts/test-audio-render.mjs",
     "package:win": "pnpm run build && electron-builder --win nsis",
