@@ -43,7 +43,7 @@ PRISM is an offline-first Electron music studio for organizing releases and prod
 
 ## Product
 
-The project library is PRISM's opening screen. Singles open their song session directly; multi-track releases open an overview with independent song sessions. The Shop remains a navigation destination and shows “Still In Development! :D”.
+The project library is PRISM's opening screen. Singles open their song session directly; multi-track releases open an overview with independent song sessions. The Shop offers Starry as a free, locally claimable theme. Preferences > Appearance switches between Original and claimed themes; claims and selection live in application settings, never music projects. No account, network verification, or payment is used.
 
 ## User preferences
 

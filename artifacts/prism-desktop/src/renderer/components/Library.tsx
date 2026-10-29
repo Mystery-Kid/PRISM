@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   ArrowDown,
   ArrowLeft,
@@ -14,7 +14,6 @@ import {
   Search,
   Settings2,
   ShoppingBag,
-  Sparkles,
   X,
 } from "lucide-react";
 import type {
@@ -26,6 +25,8 @@ import type {
   UpdateReleaseInput,
 } from "@shared/types";
 import prismLogo from "../assets/prism-logo.png";
+import { ThemeShop } from "./ThemeShop";
+import { AppearanceSettings } from "./AppearanceSettings";
 
 type Tab = "projects" | "shop";
 
@@ -144,13 +145,7 @@ export function LibraryScreen(props: LibraryProps) {
       </header>
 
       {shop ? (
-        <section className="shop-page">
-          <div className="shop-emblem"><Sparkles size={24} strokeWidth={1.5} /></div>
-          <span className="eyebrow">A studio that keeps growing</span>
-          <h1>PRISM Shop</h1>
-          <p className="shop-message">Still In Development! :D</p>
-          <p className="shop-copy">New creative tools and content may be introduced here in the future.</p>
-        </section>
+        <ThemeShop />
       ) : (
         <section className="library-content">
           <div className="library-heading">
@@ -462,14 +457,41 @@ function formatDuration(seconds: number): string {
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState("");
+  const [section, setSection] = useState<"general" | "appearance">("general");
+  const dialogRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])') ?? []);
+    focusable()[0]?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); onCloseRef.current(); }
+      if (event.key === "Tab") {
+        const items = focusable();
+        if (!items.length) return;
+        if (event.shiftKey && document.activeElement === items[0]) { event.preventDefault(); items[items.length - 1].focus(); }
+        else if (!event.shiftKey && document.activeElement === items[items.length - 1]) { event.preventDefault(); items[0].focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => { document.removeEventListener("keydown", onKeyDown); previous?.focus(); };
+  }, []);
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="modal-panel settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <section ref={dialogRef} className="modal-panel settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1}>
         <div className="modal-heading"><div><span className="eyebrow">On this computer</span><h2 id="settings-title">Settings</h2></div><button className="icon-button" onClick={onClose} aria-label="Close"><X size={18} /></button></div>
-        <p className="settings-copy">PRISM keeps your project library and imported media in your local application data folder. Your music stays on this device.</p>
-        <button className="button button-quiet folder-button" onClick={() => void window.prism.openDataFolder().catch((cause) => setError(String(cause)))}><FolderOpen size={16} /> Open PRISM data folder</button>
-        {error && <div className="inline-error">{error}</div>}
-        <div className="settings-note"><span className="status-dot" /> Offline project library enabled</div>
+        <div className="settings-tabs" role="tablist" aria-label="Settings sections">
+          <button role="tab" aria-selected={section === "general"} className={section === "general" ? "active" : ""} onClick={() => setSection("general")}>General</button>
+          <button role="tab" aria-selected={section === "appearance"} className={section === "appearance" ? "active" : ""} onClick={() => setSection("appearance")}>Appearance</button>
+        </div>
+        {section === "appearance" ? <AppearanceSettings /> : <>
+          <p className="settings-copy">PRISM keeps your project library and imported media in your local application data folder. Your music stays on this device.</p>
+          <button className="button button-quiet folder-button" onClick={() => void window.prism.openDataFolder().catch((cause) => setError(cause instanceof Error ? cause.message : "The data folder could not be opened."))}><FolderOpen size={16} /> Open PRISM data folder</button>
+          {error && <div className="inline-error" role="alert">{error}</div>}
+          <div className="settings-note"><span className="status-dot" /> Offline project library enabled</div>
+        </>}
       </section>
     </div>
   );

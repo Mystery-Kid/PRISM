@@ -41,6 +41,7 @@ node_modules
 /artifacts/prism-desktop/out/
 /artifacts/prism-desktop/release/
 /libpeerconnection.log
+/generated-artifacts/
 npm-debug.log
 yarn-error.log
 testem.log
