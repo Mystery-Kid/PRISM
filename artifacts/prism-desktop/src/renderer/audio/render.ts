@@ -1,5 +1,12 @@
 import type { MidiNote, SongSession, Track } from "@shared/types";
-import { createMasterGraph, createTrackGraph } from "./graph";
+import { deriveRoutingAudibility, validateAudioRouting } from "@shared/audio-routing";
+import { getSampleTrigger } from "@shared/instrument-tracks";
+import {
+  AudioRoutingGraph,
+  createBusGraph,
+  createMasterGraph,
+  createTrackGraph,
+} from "./graph";
 import { beatToSeconds } from "./time";
 import { encodeAudioBufferWav } from "./wav";
 import { getClipWindow, getSessionDuration } from "./timeline";
@@ -17,14 +24,60 @@ export async function renderSessionWav(
   if (duration > maximumExportSeconds) {
     throw new Error("WAV export is limited to 10 minutes to protect this computer's memory.");
   }
+  if (session.tracks.some((track) => track.type === "unsupported" && track.notes.length > 0)) {
+    throw new Error("A MIDI track uses an unsupported instrument type. Its notes were kept; recover the track before exporting.");
+  }
+  const sampleEvents = session.tracks.flatMap((track) =>
+    track.notes.flatMap((note) => {
+      const trigger = getSampleTrigger(track, note.pitch, note.velocity);
+      return trigger ? [{ track, note, trigger }] : [];
+    }),
+  );
+  if (session.tracks.some((track) =>
+    (track.type === "sampler" || track.type === "drum") &&
+    track.notes.some((note) => !getSampleTrigger(track, note.pitch, note.velocity)),
+  )) {
+    throw new Error("Some sampler or drum MIDI notes have no assigned sample. Assign the sample; pattern data was kept.");
+  }
+  const sampleIds = new Set(sampleEvents.map((event) => event.trigger.assetId));
+  const assetIds = new Set([
+    ...session.tracks.flatMap((track) => track.clips.map((clip) => clip.assetId)),
+    ...sampleIds,
+  ]);
+  const audio = new Map<string, AudioBuffer>();
+  await Promise.all([...assetIds].map(async (id) => {
+    try {
+      audio.set(id, await getAudio(id));
+    } catch (cause) {
+      if (sampleIds.has(id)) {
+        throw new Error("A sampler or drum sample is missing or unsupported. Replace it; MIDI patterns and assignments were kept.");
+      }
+      throw cause;
+    }
+  }));
+  let sampleEnd = duration;
+  for (const { note, trigger } of sampleEvents) {
+    const buffer = audio.get(trigger.assetId);
+    if (!buffer) continue;
+    const start = beatToSeconds(note.startBeat, session.tempo, session.timeSignature);
+    sampleEnd = Math.max(sampleEnd, start + buffer.duration / trigger.playbackRate);
+  }
   const hasTail = session.masterEffects.some((effect) =>
     effect.enabled && (effect.type === "reverb" || effect.type === "delay"),
   ) || session.tracks.some((track) => track.effects.some((effect) =>
     effect.enabled && (effect.type === "reverb" || effect.type === "delay"),
+  )) || (session.buses ?? []).some((bus) => bus.effects.some((effect) =>
+    effect.enabled && (effect.type === "reverb" || effect.type === "delay"),
   ));
   const tailSeconds = hasTail ? 4 : 0;
-  const frameCount = Math.ceil((duration + tailSeconds) * exportSampleRate);
+  const exportDuration = Math.max(duration, sampleEnd);
+  if (exportDuration + tailSeconds > maximumExportSeconds) {
+    throw new Error("WAV export including sample and effect tails is limited to 10 minutes.");
+  }
+  const frameCount = Math.ceil((exportDuration + tailSeconds) * exportSampleRate);
   const context = new OfflineAudioContext(2, frameCount, exportSampleRate);
+  const buses = session.buses ?? [];
+  validateAudioRouting(session.tracks, buses);
   const master = createMasterGraph(
     context,
     session.masterVolume,
@@ -32,21 +85,23 @@ export async function renderSessionWav(
     context.destination,
   );
   const graphs = new Map<string, ReturnType<typeof createTrackGraph>>();
-  const isSoloed = session.tracks.some((track) => track.solo);
+  const busGraphs = new Map<string, ReturnType<typeof createBusGraph>>();
+  const routing = new AudioRoutingGraph();
+  const audibility = deriveRoutingAudibility(session.tracks, buses);
+  for (const bus of buses) {
+    const graph = createBusGraph(context, bus);
+    graph.update(bus, audibility.buses.get(bus.id) ?? false);
+    busGraphs.set(bus.id, graph);
+  }
   for (const track of session.tracks) {
-    const graph = createTrackGraph(context, track, master.input);
-    graph.update(track, !isSoloed || track.solo);
+    const graph = createTrackGraph(context, track);
+    graph.update(track, audibility.tracks.get(track.id) ?? false);
     graphs.set(track.id, graph);
   }
-
-  const assetIds = [...new Set(session.tracks.flatMap((track) =>
-    track.clips.map((clip) => clip.assetId),
-  ))];
-  const audio = new Map<string, AudioBuffer>();
-  await Promise.all(assetIds.map(async (id) => audio.set(id, await getAudio(id))));
+  routing.update(session.tracks, buses, graphs, busGraphs, master.input);
 
   for (const track of session.tracks) {
-    if (track.muted || (isSoloed && !track.solo)) continue;
+    if (!(audibility.tracks.get(track.id) ?? false)) continue;
     const graph = graphs.get(track.id);
     if (!graph) continue;
     for (const clip of track.clips) {
@@ -85,12 +140,20 @@ export async function renderSessionWav(
       for (const note of track.notes) {
         scheduleOfflineNote(context, session, track, note, graph.input);
       }
+    } else if (track.type === "sampler" || track.type === "drum") {
+      for (const note of track.notes) {
+        const trigger = getSampleTrigger(track, note.pitch, note.velocity);
+        const sample = trigger && audio.get(trigger.assetId);
+        if (trigger && sample) scheduleOfflineSample(context, session, note, trigger, sample, graph.input);
+      }
     }
   }
 
   if (session.metronomeEnabled) scheduleOfflineMetronome(context, session, master.input, duration);
   const rendered = await context.startRendering();
+  routing.dispose();
   graphs.forEach((graph) => graph.dispose());
+  busGraphs.forEach((graph) => graph.dispose());
   master.dispose();
   return encodeAudioBufferWav(rendered);
 }
@@ -127,6 +190,25 @@ function scheduleOfflineNote(
   envelope.connect(destination);
   oscillator.start(start);
   oscillator.stop(end + 0.01);
+}
+
+function scheduleOfflineSample(
+  context: OfflineAudioContext,
+  session: SongSession,
+  note: MidiNote,
+  trigger: { assetId: string; playbackRate: number; gain: number },
+  sample: AudioBuffer,
+  destination: AudioNode,
+): void {
+  const start = beatToSeconds(note.startBeat, session.tempo, session.timeSignature);
+  const source = context.createBufferSource();
+  source.buffer = sample;
+  source.playbackRate.value = trigger.playbackRate;
+  const gain = context.createGain();
+  gain.gain.setValueAtTime(trigger.gain, start);
+  source.connect(gain);
+  gain.connect(destination);
+  source.start(start);
 }
 
 function scheduleOfflineMetronome(

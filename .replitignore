@@ -6,3 +6,4 @@
 
 # Desktop installers are generated build outputs.
 /artifacts/prism-desktop/release/
+/generated-artifacts/

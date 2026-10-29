@@ -159,7 +159,7 @@ export default function App() {
   if (loading) return <div className="app-loading"><span className="loading-ring" /><span>Opening your studio…</span></div>;
   if (destination.screen === "workstation" && session) {
     const releaseTitle = releases.find((release) => release.id === session.releaseId)?.title ?? "Project";
-    return <><Workstation session={session} releaseTitle={releaseTitle} onBack={() => void navigateBackFromWorkstation()} onHome={() => { void refreshReleases(); setDestination({ screen: "projects" }); }} />{pageError && <div className="global-error" role="alert">{pageError}<button onClick={() => setPageError("")}>Dismiss</button></div>}</>;
+    return <><Workstation session={session} releaseTitle={releaseTitle} onBack={() => void navigateBackFromWorkstation()} onHome={() => { void refreshReleases(); setDestination({ screen: "projects" }); }} onSettings={() => setSettingsOpen(true)} />{settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}{pageError && <div className="global-error" role="alert">{pageError}<button onClick={() => setPageError("")}>Dismiss</button></div>}</>;
   }
 
   return (

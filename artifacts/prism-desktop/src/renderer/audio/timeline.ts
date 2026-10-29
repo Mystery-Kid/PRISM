@@ -8,7 +8,7 @@ export function getSessionDuration(session: SongSession | null): number {
     for (const clip of track.clips) {
       duration = Math.max(duration, clip.startSeconds + clip.durationSeconds);
     }
-    if (track.type === "instrument") {
+    if (track.type !== "audio") {
       for (const note of track.notes) {
         duration = Math.max(
           duration,

@@ -25,3 +25,22 @@ what was tested.
 **How to apply:** Report browser/UI, storage, packaging, and physical-device
 checks separately; retain a real installed-app acceptance check for file-dialog
 and device behavior.
+
+A working system Chromium does not establish that the bundled Electron runtime
+can launch in this container.
+
+**Why:** The Electron binary encountered missing shared libraries and incompatible
+host C-library versions even though Chromium browser tests ran successfully.
+
+**How to apply:** Verify Electron startup separately. When unavailable, report
+browser renderer checks and disk-store tests as such, not as desktop acceptance.
+
+Treat voice lifetime and mixer gating as separate from scheduling continuity.
+
+**Why:** A naturally completed voice or a correctly muted preview can look like
+a routing restart or missing audio in live graph assertions. These observations
+alone do not establish an engine regression.
+
+**How to apply:** Before changing production audio code for a failed live check,
+establish that the tested voice is still within its playback lifetime and its
+intended route is audible. Keep preview checks on the same mixer path as playback.

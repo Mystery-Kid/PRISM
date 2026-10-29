@@ -10,6 +10,10 @@ import type {
 } from "@shared/types";
 
 const bridge: AppBridge = {
+  getThemeState: () => ipcRenderer.invoke("prism:themes:get"),
+  claimTheme: (id) => ipcRenderer.invoke("prism:themes:claim", id),
+  applyTheme: (id) => ipcRenderer.invoke("prism:themes:apply", id),
+  repairTheme: (id) => ipcRenderer.invoke("prism:themes:repair", id),
   listReleases: () => ipcRenderer.invoke("prism:releases:list"),
   markReleaseOpened: (releaseId) => ipcRenderer.invoke("prism:releases:opened", releaseId),
   getSession: (sessionId) => ipcRenderer.invoke("prism:sessions:get", sessionId),
@@ -48,6 +52,8 @@ const bridge: AppBridge = {
   selectArtwork: () => ipcRenderer.invoke("prism:artwork:select"),
   importAudio: (sessionId, trackId) =>
     ipcRenderer.invoke("prism:audio:import", sessionId, trackId),
+  listAudioAssets: () => ipcRenderer.invoke("prism:audio:assets:list"),
+  importSample: () => ipcRenderer.invoke("prism:audio:sample:import"),
   startRecording: (input) => ipcRenderer.invoke("prism:audio:recording:start", input),
   appendRecordingChunk: (recordingId, samples) =>
     ipcRenderer.invoke("prism:audio:recording:append", recordingId, samples),

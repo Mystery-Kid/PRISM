@@ -1,3 +1,5 @@
+import type { MidiNote } from "@shared/types";
+
 export type PianoNoteDragState = {
   pointerStartX: number;
   pointerStartY: number;
@@ -12,6 +14,24 @@ export type PianoNoteDragUpdate = {
   durationBeats: number;
   pitch: number;
 };
+
+export function splitMidiNoteAt(
+  note: MidiNote,
+  cutBeat: number,
+  rightNoteId: string,
+): { left: MidiNote; right: MidiNote } | null {
+  const relativeCut = cutBeat - note.startBeat;
+  if (relativeCut < 0.25 || note.durationBeats - relativeCut < 0.25) return null;
+  return {
+    left: { ...note, durationBeats: relativeCut },
+    right: {
+      ...note,
+      id: rightNoteId,
+      startBeat: cutBeat,
+      durationBeats: note.durationBeats - relativeCut,
+    },
+  };
+}
 
 export function getPianoNoteDragUpdate(
   drag: PianoNoteDragState,

@@ -6,10 +6,25 @@ import type {
   SongSession,
   Track,
 } from "@shared/types";
+import { deriveRoutingAudibility, validateAudioRouting } from "@shared/audio-routing";
+import {
+  countUnassignedInstrumentNotes,
+  getAssignedSampleIds,
+  getSampleTrigger,
+} from "@shared/instrument-tracks";
 import captureProcessorUrl from "./capture-processor.js?url";
-import { parseTimeSignature, secondsPerBeat } from "./time";
+import { beatToSeconds, parseTimeSignature, secondsPerBeat } from "./time";
 import { getClipWindow, getSessionDuration } from "./timeline";
-import { createMasterGraph, createTrackGraph, readMeter, type MasterGraph, type TrackGraph } from "./graph";
+import {
+  AudioRoutingGraph,
+  createBusGraph,
+  createMasterGraph,
+  createTrackGraph,
+  readMeter,
+  type BusGraph,
+  type MasterGraph,
+  type TrackGraph,
+} from "./graph";
 import { renderSessionWav } from "./render";
 import { createMidiEnvelopePlan, getMidiPlaybackWindow, midiPitchToFrequency } from "./midi";
 
@@ -30,6 +45,7 @@ export type AudioEngineSnapshot = {
   baseLatency: number | null;
   outputLatency: number | null;
   meters: Record<string, { peak: number; rms: number }>;
+  sampleErrors: string[];
   inputMeter: { peak: number; rms: number };
   inputChannels: 1 | 2 | null;
 };
@@ -55,7 +71,10 @@ export class AudioEngine {
   private session: SongSession | null = null;
   private assetUrl: (assetId: string) => string;
   private decodedAssets = new Map<string, AudioBuffer>();
+  private sampleErrors = new Set<string>();
   private tracks = new Map<string, TrackGraph>();
+  private buses = new Map<string, BusGraph>();
+  private routingGraph = new AudioRoutingGraph();
   private master: MasterGraph | null = null;
   private sources = new Set<ScheduledNode>();
   private scheduler: ReturnType<typeof setInterval> | null = null;
@@ -122,6 +141,7 @@ export class AudioEngine {
   snapshot(): AudioEngineSnapshot {
     const meters: AudioEngineSnapshot["meters"] = {};
     for (const [trackId, graph] of this.tracks) meters[trackId] = readMeter(graph.analyser);
+    for (const [busId, graph] of this.buses) meters[`bus:${busId}`] = readMeter(graph.analyser);
     if (this.master) meters.master = readMeter(this.master.analyser);
     return {
       status: this.running ? "playing" : "stopped",
@@ -132,6 +152,7 @@ export class AudioEngine {
       baseLatency: this.context?.baseLatency ?? null,
       outputLatency: this.context?.outputLatency ?? null,
       meters,
+      sampleErrors: [...this.sampleErrors],
       inputMeter: this.inputMeter,
       inputChannels: this.inputChannels,
     };
@@ -220,6 +241,11 @@ export class AudioEngine {
     const position = this.positionNow();
     const wasRunning = this.running || this.starting;
     this.session = next;
+    const sampleIds = getAssignedSampleIds(next);
+    for (const id of this.sampleErrors) {
+      if (!sampleIds.has(id)) this.sampleErrors.delete(id);
+    }
+    this.refreshSampleIssues(next);
     this.syncGraphs(next);
     if (wasRunning && previous && needsReschedule(previous, next)) {
       void this.start(next, position).catch(() => undefined);
@@ -423,14 +449,18 @@ export class AudioEngine {
     if (this.recordingId) await this.stopRecording().catch(() => undefined);
     this.clearScheduler();
     this.stopScheduledSources();
+    this.routingGraph.dispose();
     this.tracks.forEach((graph) => graph.dispose());
     this.tracks.clear();
+    this.buses.forEach((graph) => graph.dispose());
+    this.buses.clear();
     this.master?.dispose();
     this.master = null;
     await this.context?.close();
     this.context = null;
     this.captureReady = null;
     this.decodedAssets.clear();
+    this.sampleErrors.clear();
   }
 
   private cleanupCapture(): void {
@@ -450,6 +480,29 @@ export class AudioEngine {
   private async loadSessionAudio(session: SongSession): Promise<void> {
     const ids = new Set(session.tracks.flatMap((track) => track.clips.map((clip) => clip.assetId)));
     await Promise.all([...ids].map((id) => this.loadAudio(id)));
+    this.sampleErrors.clear();
+    await Promise.all([...getAssignedSampleIds(session)].map(async (id) => {
+      try {
+        await this.loadAudio(id);
+      } catch {
+        this.sampleErrors.add(id);
+      }
+    }));
+    this.refreshSampleIssues(session);
+  }
+
+  private refreshSampleIssues(session: SongSession): void {
+    const messages: string[] = [];
+    if (this.sampleErrors.size > 0) {
+      messages.push("Some assigned samples are missing or unsupported. Replace them; MIDI patterns and assignments were kept.");
+    }
+    if (countUnassignedInstrumentNotes(session.tracks) > 0) {
+      messages.push("Some sampler or drum MIDI notes have no assigned sample. Assign samples; the pattern data was kept.");
+    }
+    if (session.tracks.some((track) => track.type === "unsupported" && track.notes.length > 0)) {
+      messages.push("A MIDI track uses an unsupported instrument type. Its notes and source data were kept; use the piano panel to recover it.");
+    }
+    this.lastError = messages.length > 0 ? messages.join(" ") : null;
   }
 
   async loadAudio(assetId: string): Promise<AudioBuffer> {
@@ -463,8 +516,56 @@ export class AudioEngine {
     return decoded;
   }
 
+  async previewInstrumentNote(
+    session: SongSession,
+    trackId: string,
+    pitch: number,
+    velocity = 96,
+  ): Promise<void> {
+    const context = await this.ensureContext();
+    const track = session.tracks.find((item) => item.id === trackId);
+    if (!track) throw new Error("Choose a sampler or drum track to preview.");
+    const trigger = getSampleTrigger(track, pitch, velocity);
+    if (!trigger) throw new Error("Assign a supported sample to this MIDI note before previewing it.");
+
+    this.session = session;
+    this.syncGraphs(session);
+    let audio: AudioBuffer;
+    try {
+      audio = await this.loadAudio(trigger.assetId);
+      this.sampleErrors.delete(trigger.assetId);
+    } catch {
+      this.sampleErrors.add(trigger.assetId);
+      this.refreshSampleIssues(session);
+      throw new Error("The assigned sample is missing or unsupported. Replace it; MIDI and pad assignments were kept.");
+    }
+    const graph = this.tracks.get(track.id);
+    if (!graph) throw new Error("The track's audio path could not be created.");
+    this.refreshSampleIssues(session);
+
+    const source = context.createBufferSource() as AudioBufferSourceNode & ScheduledNode;
+    source.buffer = audio;
+    source.playbackRate.value = trigger.playbackRate;
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(trigger.gain, context.currentTime);
+    source.connect(gain);
+    gain.connect(graph.input);
+    source.__prismCleanup = () => {
+      source.disconnect();
+      gain.disconnect();
+    };
+    source.onended = () => {
+      source.__prismCleanup?.();
+      this.sources.delete(source);
+    };
+    this.sources.add(source);
+    source.start(context.currentTime + 0.01);
+  }
+
   private syncGraphs(session: SongSession): void {
     if (!this.context) return;
+    const buses = session.buses ?? [];
+    validateAudioRouting(session.tracks, buses);
     if (!this.master) {
       this.master = createMasterGraph(
         this.context,
@@ -475,7 +576,22 @@ export class AudioEngine {
     } else {
       this.master.update(session.masterVolume, session.masterEffects);
     }
-    const isSoloed = session.tracks.some((track) => track.solo);
+    const audibility = deriveRoutingAudibility(session.tracks, buses);
+    const busIds = new Set(buses.map((bus) => bus.id));
+    for (const [id, graph] of this.buses) {
+      if (!busIds.has(id)) {
+        graph.dispose();
+        this.buses.delete(id);
+      }
+    }
+    for (const bus of buses) {
+      let graph = this.buses.get(bus.id);
+      if (!graph) {
+        graph = createBusGraph(this.context, bus);
+        this.buses.set(bus.id, graph);
+      }
+      graph.update(bus, audibility.buses.get(bus.id) ?? false);
+    }
     const ids = new Set(session.tracks.map((track) => track.id));
     for (const [id, graph] of this.tracks) {
       if (!ids.has(id)) {
@@ -486,15 +602,28 @@ export class AudioEngine {
     for (const track of session.tracks) {
       let graph = this.tracks.get(track.id);
       if (!graph) {
-        graph = createTrackGraph(this.context, track, this.master.input);
+        graph = createTrackGraph(this.context, track);
         this.tracks.set(track.id, graph);
       }
-      graph.update(track, !isSoloed || track.solo);
+      graph.update(track, audibility.tracks.get(track.id) ?? false);
     }
+    this.routingGraph.update(session.tracks, buses, this.tracks, this.buses, this.master.input);
   }
 
   private totalDuration(): number {
-    return getSessionDuration(this.session);
+    if (!this.session) return 0;
+    let duration = getSessionDuration(this.session);
+    for (const track of this.session.tracks) {
+      if (track.type !== "sampler" && track.type !== "drum") continue;
+      for (const note of track.notes) {
+        const trigger = getSampleTrigger(track, note.pitch, note.velocity);
+        const buffer = trigger && this.decodedAssets.get(trigger.assetId);
+        if (!trigger || !buffer) continue;
+        const start = beatToSeconds(note.startBeat, this.session.tempo, this.session.timeSignature);
+        duration = Math.max(duration, start + buffer.duration / trigger.playbackRate + 0.1);
+      }
+    }
+    return duration;
   }
 
   private positionAt(audioTime: number): number {
@@ -571,9 +700,13 @@ export class AudioEngine {
           contextFrom,
         );
       }
-      if (track.type === "instrument") {
+      if (track.type === "instrument" && track.instrument) {
         track.notes.forEach((note) =>
           this.scheduleNote(session, track, graph, note, timelineFrom, timelineTo, contextFrom),
+        );
+      } else if (track.type === "sampler" || track.type === "drum") {
+        track.notes.forEach((note) =>
+          this.scheduleSampleNote(session, track, graph, note, timelineFrom, timelineTo, contextFrom),
         );
       }
     }
@@ -595,7 +728,7 @@ export class AudioEngine {
     if (!this.context) return;
     const duration = Math.min(clipTo - clipFrom, clip.sourceDurationSeconds - startOffset);
     if (duration <= 0 || startOffset >= audio.duration) return;
-    const source = this.context.createBufferSource() as ScheduledNode;
+    const source = this.context.createBufferSource() as AudioBufferSourceNode & ScheduledNode;
     const bufferSource = source as AudioBufferSourceNode;
     bufferSource.buffer = audio;
     const clipGain = this.context.createGain();
@@ -701,6 +834,51 @@ export class AudioEngine {
     oscillator.stop(endAt + 0.01);
   }
 
+  private scheduleSampleNote(
+    session: SongSession,
+    track: Track,
+    graph: TrackGraph,
+    note: MidiNote,
+    timelineFrom: number,
+    timelineTo: number,
+    contextFrom: number,
+  ): void {
+    if (!this.context) return;
+    const trigger = getSampleTrigger(track, note.pitch, note.velocity);
+    const audio = trigger && this.decodedAssets.get(trigger.assetId);
+    if (!trigger || !audio) return;
+    const playback = getMidiPlaybackWindow(
+      note,
+      session.tempo,
+      session.timeSignature,
+      timelineFrom,
+      timelineTo,
+      this.anchorTimeline,
+      session.loopRange,
+    );
+    if (!playback) return;
+    const offset = playback.offsetSeconds * trigger.playbackRate;
+    if (offset >= audio.duration) return;
+    const source = this.context.createBufferSource() as AudioBufferSourceNode & ScheduledNode;
+    source.buffer = audio;
+    source.playbackRate.value = trigger.playbackRate;
+    const gain = this.context.createGain();
+    const when = contextFrom + playback.startSeconds - timelineFrom;
+    gain.gain.setValueAtTime(trigger.gain, when);
+    source.connect(gain);
+    gain.connect(graph.input);
+    source.__prismCleanup = () => {
+      source.disconnect();
+      gain.disconnect();
+    };
+    source.onended = () => {
+      source.__prismCleanup?.();
+      this.sources.delete(source);
+    };
+    this.sources.add(source);
+    source.start(when, offset);
+  }
+
   private scheduleMetronome(
     session: SongSession,
     timelineFrom: number,
@@ -787,7 +965,10 @@ function needsReschedule(previous: SongSession, next: SongSession): boolean {
       track.type !== updated.type ||
       track.clips !== updated.clips ||
       track.notes !== updated.notes ||
-      JSON.stringify(track.instrument) !== JSON.stringify(updated.instrument)
+      JSON.stringify(track.instrument) !== JSON.stringify(updated.instrument) ||
+      JSON.stringify(track.sampler) !== JSON.stringify(updated.sampler) ||
+      JSON.stringify(track.drumKit) !== JSON.stringify(updated.drumKit) ||
+      JSON.stringify(track.instrumentRecovery) !== JSON.stringify(updated.instrumentRecovery)
     );
   });
 }

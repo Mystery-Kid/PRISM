@@ -35,6 +35,7 @@ import {
 } from "../shared/migrations";
 import { createLibraryBackup, restoreLibraryBackup } from "./project-backup";
 import { writeAtomicText } from "./atomic-write";
+import { ThemeStore } from "./theme-store";
 import {
   createEffectPresetFile,
   maxEffectPresetBytes,
@@ -44,6 +45,8 @@ import {
   visibleEffectPresets,
 } from "../shared/effect-presets";
 import { normalizeEffectChain } from "../shared/effect-definitions";
+import { validateInstrumentTrackState } from "../shared/instrument-tracks";
+import { validateAudioRouting } from "../shared/audio-routing";
 import type {
   AudioClip,
   CreateReleaseInput,
@@ -97,7 +100,7 @@ let closeApproved = false;
 const activeRecordings = new Map<string, ActiveRecording>();
 
 function emptyLibrary(): ProjectLibrary {
-  return { version: 3, releases: [], sessions: [], assets: [], effectPresets: [] };
+  return { version: 5, releases: [], sessions: [], assets: [], effectPresets: [] };
 }
 
 async function persistLibrary(): Promise<void> {
@@ -170,7 +173,12 @@ function freshTrack(name = "Audio 1", type: Track["type"] = "audio"): Track {
     instrument: type === "instrument"
       ? { waveform: "sawtooth", attack: 0.01, decay: 0.12, sustain: 0.65, release: 0.18 }
       : null,
+    sampler: null,
+    drumKit: null,
+    instrumentRecovery: null,
     effects: [],
+    outputBusId: null,
+    sends: [],
   };
 }
 
@@ -185,6 +193,7 @@ function freshSession(releaseId: string, title: string): SongSession {
     metronomeEnabled: false,
     masterVolume: 1,
     masterEffects: [],
+    buses: [],
     tracks: [freshTrack()],
     updatedAt: new Date().toISOString(),
   };
@@ -419,6 +428,8 @@ function allowedSender(senderId: number): void {
   }
 }
 
+let themeStore: ThemeStore;
+
 function registerIpcHandlers(): void {
   const handle = (
     channel: string,
@@ -430,6 +441,10 @@ function registerIpcHandlers(): void {
     });
   };
 
+  handle("prism:themes:get", () => themeStore.getState());
+  handle("prism:themes:claim", (_event, id) => themeStore.claim(id));
+  handle("prism:themes:apply", (_event, id) => themeStore.apply(id));
+  handle("prism:themes:repair", (_event, id) => themeStore.repair(id));
   handle("prism:releases:list", async () =>
     [...getLibrary().releases].sort((a, b) =>
       (b.lastOpenedAt ?? b.updatedAt).localeCompare(a.lastOpenedAt ?? a.updatedAt),
@@ -604,10 +619,43 @@ function registerIpcHandlers(): void {
       new Set(updated.tracks.map((track) => track.id)).size !== updated.tracks.length
     ) throw new Error("The session contains invalid transport or track settings.");
     const masterEffects = normalizeEffectChain(updated.masterEffects);
+    if (!Array.isArray(updated.buses)) {
+      if (updated.buses !== undefined || current.buses.length > 0) {
+        throw new Error("The session is missing its saved audio buses.");
+      }
+    }
+    const busesWithValidatedEffects = (updated.buses ?? []).map((bus) => ({
+      ...bus,
+      name: bus.name.trim(),
+      sends: bus.sends ?? [],
+      outputBusId: bus.outputBusId ?? null,
+      effects: normalizeEffectChain(bus.effects),
+    }));
     const tracksWithValidatedEffects = updated.tracks.map((track) => ({
       ...track,
+      outputBusId: track.outputBusId ?? null,
+      sends: track.sends ?? [],
       effects: normalizeEffectChain(track.effects),
     }));
+    for (const track of updated.tracks) {
+      const previous = current.tracks.find((entry) => entry.id === track.id);
+      if (
+        (track.outputBusId === undefined && previous?.outputBusId) ||
+        (track.sends === undefined && previous?.sends.length)
+      ) {
+        throw new Error(`The saved routing for "${track.name}" is incomplete.`);
+      }
+    }
+    for (const bus of updated.buses ?? []) {
+      const previous = current.buses.find((entry) => entry.id === bus.id);
+      if (
+        (bus.outputBusId === undefined && previous?.outputBusId) ||
+        (bus.sends === undefined && previous?.sends.length)
+      ) {
+        throw new Error(`The saved routing for "${bus.name}" is incomplete.`);
+      }
+    }
+    validateAudioRouting(tracksWithValidatedEffects, busesWithValidatedEffects);
     if (
       updated.loopRange?.enabled &&
       (!Number.isFinite(updated.loopRange.startSeconds) ||
@@ -616,8 +664,9 @@ function registerIpcHandlers(): void {
         updated.loopRange.endSeconds <= updated.loopRange.startSeconds)
     ) throw new Error("The loop range is invalid.");
     for (const track of tracksWithValidatedEffects) {
+      const instrumentValidation = validateInstrumentTrackState(track);
+      if (instrumentValidation) throw new Error(instrumentValidation);
       if (
-        !["audio", "instrument"].includes(track.type) ||
         !Array.isArray(track.effects) ||
         !Array.isArray(track.clips) ||
         track.clips.length > 10_000 ||
@@ -625,7 +674,6 @@ function registerIpcHandlers(): void {
         track.notes.length > 100_000 ||
         !Number.isFinite(track.volume) ||
         !Number.isFinite(track.pan) ||
-        (track.type === "instrument" && !track.instrument) ||
         track.clips.some(
           (clip: AudioClip) =>
             !getLibrary().assets.some((asset) => asset.id === clip.assetId) ||
@@ -661,6 +709,7 @@ function registerIpcHandlers(): void {
     const saved = {
       ...updated,
       tracks: tracksWithValidatedEffects,
+      buses: busesWithValidatedEffects,
       masterEffects,
       title: cleanTitle(updated.title),
       tempo: Math.min(300, Math.max(20, Math.round(updated.tempo))),
@@ -829,6 +878,57 @@ function registerIpcHandlers(): void {
     session.updatedAt = new Date().toISOString();
     await persistLibrary();
     return { clip, assetUrl: `prism-media://local/${id}` };
+  });
+  handle("prism:audio:assets:list", async () =>
+    getLibrary().assets
+      .filter((asset) => asset.mimeType.startsWith("audio/"))
+      .map(({ id, fileName, mimeType }) => ({ id, fileName, mimeType } satisfies ProjectAsset)),
+  );
+  handle("prism:audio:sample:import", async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: "Import sampler audio",
+      properties: ["openFile"],
+      filters: [{ name: "Audio", extensions: ["wav", "mp3", "ogg", "m4a", "flac"] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    const sourcePath = result.filePaths[0];
+    const extension = extname(sourcePath).toLowerCase();
+    if (![".wav", ".mp3", ".ogg", ".m4a", ".flac"].includes(extension)) {
+      throw new Error("Choose a WAV, MP3, OGG, M4A, or FLAC sample.");
+    }
+    const info = await stat(sourcePath);
+    if (info.size <= 0 || info.size > 500 * 1024 * 1024) {
+      throw new Error("Audio samples must be non-empty and smaller than 500 MB.");
+    }
+    const id = randomUUID();
+    const storageName = `${id}${extension}`;
+    const assetPath = join(assetDirectory, storageName);
+    await copyFile(sourcePath, assetPath);
+    const asset: StoredAsset = {
+      id,
+      storageName,
+      fileName: sourcePath.split(/[\\/]/).pop() ?? "audio sample",
+      mimeType:
+        extension === ".wav"
+          ? "audio/wav"
+          : extension === ".ogg"
+            ? "audio/ogg"
+            : extension === ".m4a"
+              ? "audio/mp4"
+              : extension === ".flac"
+                ? "audio/flac"
+                : "audio/mpeg",
+    };
+    const previousAssets = getLibrary().assets;
+    getLibrary().assets = [...previousAssets, asset];
+    try {
+      await persistLibrary();
+    } catch (error) {
+      getLibrary().assets = previousAssets;
+      await unlink(assetPath).catch(() => undefined);
+      throw error;
+    }
+    return { id: asset.id, fileName: asset.fileName, mimeType: asset.mimeType } satisfies ProjectAsset;
   });
   handle("prism:audio:recording:start", async (_event, input: RecordingStart) => {
     if (
@@ -1225,6 +1325,12 @@ app.whenReady().then(async () => {
   assetDirectory = join(dataDirectory, "assets");
   libraryFile = join(dataDirectory, "library.json");
   await mkdir(assetDirectory, { recursive: true });
+  themeStore = new ThemeStore(dataDirectory);
+  await themeStore.initialize().catch((error) => {
+    // Appearance problems must not prevent users from opening their music.
+    // Theme IPC retries initialization and exposes the error in Preferences.
+    console.warn("PRISM appearance settings are unavailable:", error);
+  });
   library = await readLibrary();
   await recoverInterruptedRecordings();
   await protocol.handle("prism-media", handleMediaRequest);
