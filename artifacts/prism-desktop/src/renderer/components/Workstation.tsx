@@ -566,8 +566,10 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     setActiveEditor("routing");
     setNotice("Bus created. Choose it as a track output or send in Routing to feed it audio.");
   };
-  const createMidiClip = (trackId = selectedTrack) => {
-    const track = session.tracks.find((item) => item.id === trackId);
+  const createMidiClip = (trackId = selectedTrack, newlyCreatedTrack?: Track) => {
+    // Insert > MIDI Clip can create its instrument in this same React event;
+    // that track is not in the render's session snapshot until the next render.
+    const track = session.tracks.find((item) => item.id === trackId) ?? newlyCreatedTrack;
     if (!track || !["instrument", "sampler", "drum"].includes(track.type)) {
       setNotice("Add or select an instrument, sampler, or drum track first.");
       return;
@@ -1357,7 +1359,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         const track = currentTrack ?? addTrack("instrument");
         if (!currentTrack) setPanel(previousPanel);
         setActiveEditor("arrangement");
-        createMidiClip(track.id);
+        createMidiClip(track.id, track);
       }
       return;
     }
