@@ -1,1 +1,2 @@
 - [Desktop audio verification](desktop-audio-verification.md) — a running Chromium context may have a stalled clock without a host audio device; separate silent-sink tests from hardware claims.
+- [GitHub artifact downloads](github-artifact-downloads.md) — direct archive URLs may bypass the authenticated proxy; use a relative gh api archive request.

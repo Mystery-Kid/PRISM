@@ -5,8 +5,21 @@ an instrument library, native VST hosting, tempo stretching, or new themes.
 
 ## Verification status
 
-The checks below describe the implemented verification. Final command results and
-the installed Windows run are recorded here after verification completes.
+All 16 requirements below have automated evidence. Local checks passed:
+typecheck, production build, 87 core tests, 3 portable-project tests, and
+11 arrangement/scale/waveform tests (101 total).
+
+[Windows run 40888704008](https://github.com/Mystery-Kid/PRISM/actions/runs/40888704008)
+passed the same checks, audio rendering/effects/transport, NSIS packaging,
+actual installation, first launch, process close/reopen and native editor
+interaction checks. Its `reopen.json` reports `ok: true`, including native note
+drag/resize, undo/redo, source waveform and three-size/zoom geometry checks.
+The saved 1440/100% and 1000/125% editor captures were reviewed.
+
+An initial native drag check failed because the test did not preserve the held
+mouse button during pointer movement. Correcting the test's button flags made
+the native gesture checks pass without changing the editor drag implementation.
+The isolated test fixture also uses independent clip arrays for its two tracks.
 
 | Acceptance requirement | Evidence |
 | --- | --- |

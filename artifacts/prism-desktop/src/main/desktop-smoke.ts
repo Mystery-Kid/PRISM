@@ -39,7 +39,7 @@ export async function runDesktopSmoke(window: BrowserWindow, directory: string, 
         track.notes = [{ id: 'smoke-note', midiClipId: 'smoke-original-clip', pitch: 61, startBeat: 1, durationBeats: 2, velocity: 96 }];
         track.id = 'smoke-instrument';
         const audioTrack = { ...track, id: 'smoke-audio', type: 'audio', name: 'Right-channel fixture',
-          instrument: null, notes: [], midiClips: [], recordArmed: true };
+          instrument: null, clips: [], notes: [], midiClips: [], recordArmed: true };
         session.tracks.push(audioTrack);
         session.tempo = 123;
         session.songKey = { root: 7, scale: 'major' };
