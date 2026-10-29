@@ -12,6 +12,7 @@ function fixture() {
     releases: [{ id: "release", title: "Source", releaseType: "Single", songIds: ["song"] }],
     sessions: [{
       id: "song", releaseId: "release", title: "Portable song", tempo: 110,
+      songKey: { root: 7, scale: "major" }, midiView: { smartView: true, scaleSnap: false },
       tracks: [{
         id: "sampler", type: "sampler", name: "Sampler",
         sampler: { sampleAssetId: "media", rootNote: 48, gain: 0.8 },
@@ -52,6 +53,8 @@ test("portable save/open copies media and preserves independent MIDI, routing an
     assert.notEqual(first.library.releases[0]!.id, source.releases[0]!.id);
     const reopened = first.library.sessions[0]!;
     assert.deepEqual(reopened.tracks[0]!.notes, source.sessions[0]!.tracks[0]!.notes);
+    assert.deepEqual(reopened.songKey, source.sessions[0]!.songKey);
+    assert.deepEqual(reopened.midiView, source.sessions[0]!.midiView);
     assert.deepEqual(reopened.tracks[0]!.midiClips, source.sessions[0]!.tracks[0]!.midiClips);
     assert.deepEqual(reopened.buses, source.sessions[0]!.buses);
     assert.equal(reopened.tracks[0]!.outputBusId, "bus");

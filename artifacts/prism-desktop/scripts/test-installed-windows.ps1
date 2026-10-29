@@ -14,7 +14,7 @@ foreach ($phase in @("first-launch", "reopen")) {
   $arguments = @("--prism-smoke-test=$root")
   if ($phase -eq "reopen") { $arguments += "--prism-smoke-reopen" }
   $process = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru
-  if (!$process.WaitForExit(60000)) {
+  if (!$process.WaitForExit(120000)) {
     $process.Kill()
     throw "Installed PRISM timed out during $phase."
   }

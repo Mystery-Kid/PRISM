@@ -1,4 +1,17 @@
 import type { MidiClip, MidiNote } from "@shared/types";
+import { movePitchByScaleSteps, nearestScalePitch } from "@shared/scales";
+
+export type PianoScaleKey = { root: number; scale: "major" | "naturalMinor" };
+export const PIANO_KEYBOARD_WIDTH = 54;
+export const PIANO_ROW_HEIGHT = 15;
+
+export function pianoClientToBeat(clientX: number, viewportLeft: number, scrollLeft: number, beatWidth: number): number {
+  return Math.max(0, (clientX - viewportLeft + scrollLeft) / Math.max(Number.EPSILON, beatWidth));
+}
+
+export function pianoClientToPitch(clientY: number, viewportTop: number, scrollTop: number, rowHeight = PIANO_ROW_HEIGHT): number {
+  return Math.max(0, Math.min(127, 127 - Math.floor((clientY - viewportTop + scrollTop) / rowHeight)));
+}
 
 /**
  * Plan a paste entirely in musical beats. Reuse a selected clip only when the
@@ -74,6 +87,9 @@ export function getPianoNoteDragUpdate(
   pointerY: number,
   beatWidth: number,
   snap: boolean,
+  scaleKey?: PianoScaleKey | null,
+  scaleSnap = false,
+  chromaticOverride = false,
 ): PianoNoteDragUpdate {
   const deltaBeats = (pointerX - drag.pointerStartX) / Math.max(1, beatWidth);
   const quantize = (beat: number) => snap ? Math.round(beat * 4) / 4 : beat;
@@ -86,12 +102,37 @@ export function getPianoNoteDragUpdate(
     };
   }
 
+  const rowSteps = -Math.round((pointerY - drag.pointerStartY) / PIANO_ROW_HEIGHT);
+  const movedPitch = constrainMovedPitch(drag.pitch, rowSteps, scaleKey, scaleSnap, chromaticOverride);
   return {
     startBeat: Math.max(0, quantize(drag.startBeat + deltaBeats)),
     durationBeats: drag.durationBeats,
-    pitch: Math.max(
-      0,
-      Math.min(127, drag.pitch - Math.round((pointerY - drag.pointerStartY) / 15)),
-    ),
+    pitch: Math.max(0, Math.min(127, Math.round(movedPitch))),
   };
+}
+
+export function constrainMovedPitch(
+  pitch: number,
+  scaleSteps: number,
+  key: PianoScaleKey | null | undefined,
+  scaleSnap: boolean,
+  chromaticOverride = false,
+): number {
+  const bounded = Math.max(0, Math.min(127, Math.round(pitch)));
+  if (!scaleSnap || !key || chromaticOverride) {
+    return Math.max(0, Math.min(127, bounded + Math.round(scaleSteps)));
+  }
+  return movePitchByScaleSteps(nearestScalePitch(bounded, key), scaleSteps, key);
+}
+
+export function constrainCreatedPitch(
+  pitch: number,
+  key: PianoScaleKey | null | undefined,
+  scaleSnap: boolean,
+  chromaticOverride = false,
+): number {
+  const bounded = Math.max(0, Math.min(127, Math.round(pitch)));
+  return scaleSnap && key && !chromaticOverride
+    ? nearestScalePitch(bounded, key)
+    : bounded;
 }

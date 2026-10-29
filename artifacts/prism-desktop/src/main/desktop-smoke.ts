@@ -1,6 +1,7 @@
 import { app, type BrowserWindow } from "electron";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { verifyInstalledEditor } from "./editor-smoke";
 
 /** Opt-in installed-app check. Always uses isolated userData supplied by CI. */
 export async function runDesktopSmoke(window: BrowserWindow, directory: string, reopen: boolean): Promise<void> {
@@ -8,7 +9,7 @@ export async function runDesktopSmoke(window: BrowserWindow, directory: string, 
   const timer = setTimeout(() => {
     void writeFile(report, JSON.stringify({ ok: false, error: "Installed app check timed out." }))
       .finally(() => app.exit(1));
-  }, 45_000);
+  }, 100_000);
   try {
     const result = await window.webContents.executeJavaScript(`(async () => {
       const assert = (condition, message) => { if (!condition) throw new Error(message); };
@@ -34,16 +35,42 @@ export async function runDesktopSmoke(window: BrowserWindow, directory: string, 
         track.type = 'instrument';
         track.name = 'Smoke synth';
         track.instrument = { waveform: 'sine', attack: .01, decay: .1, sustain: .7, release: .1 };
-        track.notes = [{ id: 'smoke-note', pitch: 60, startBeat: 1, durationBeats: 2, velocity: 96 }];
+        track.midiClips = [{ id: 'smoke-original-clip', name: 'Original MIDI', startBeat: 0, durationBeats: 4 }];
+        track.notes = [{ id: 'smoke-note', midiClipId: 'smoke-original-clip', pitch: 61, startBeat: 1, durationBeats: 2, velocity: 96 }];
+        track.id = 'smoke-instrument';
+        const audioTrack = { ...track, id: 'smoke-audio', type: 'audio', name: 'Right-channel fixture',
+          instrument: null, notes: [], midiClips: [], recordArmed: true };
+        session.tracks.push(audioTrack);
         session.tempo = 123;
+        session.songKey = { root: 7, scale: 'major' };
+        session.midiView = { smartView: true, scaleSnap: false };
         await bridge.saveSession(session);
+        // Use actual recording IPC to seed a stereo file; this is NOT a microphone/device test.
+        const recordingId = await bridge.startRecording({
+          sessionId: session.id, trackId: audioTrack.id, sampleRate: 48000, channels: 2, startSeconds: 0
+        });
+        const samples = new Float32Array(48000 * 2 * 2);
+        for (let frame = 0; frame < 24000; frame++) samples[frame * 2 + 1] =
+          Math.sin(frame * 440 * 2 * Math.PI / 48000) * .8;
+        await bridge.appendRecordingChunk(recordingId, samples);
+        await bridge.finishRecording({ recordingId, waveform: [] });
+        const recorded = await bridge.getSession(session.id);
+        const recordedTrack = recorded.tracks.find(item => item.id === audioTrack.id);
+        const source = recordedTrack.clips[0];
+        source.durationSeconds = .5;
+        recordedTrack.clips.push({ ...source, id: 'smoke-silent-trim', name: 'Silent source window',
+          startSeconds: 3, sourceStartSeconds: 1, durationSeconds: 1 });
+        recordedTrack.recordArmed = false;
+        await bridge.saveSession(recorded);
         await bridge.claimTheme('theme.starry');
         await bridge.applyTheme('theme.starry');
       }
       releases = await bridge.listReleases();
       assert(releases.length === 1, 'Isolated project was not preserved');
       const session = await bridge.getSession(releases[0].songIds[0]);
-      assert(session.tempo === 123 && session.tracks[0].notes[0].pitch === 60, 'Saved MIDI or tempo was lost');
+      assert(session.tempo === 123 && session.tracks[0].notes[0].pitch === 61, 'Saved MIDI or tempo was lost');
+      assert(session.songKey && session.songKey.root === 7 && session.songKey.scale === 'major', 'Song Key was lost');
+      assert(session.midiView && session.midiView.smartView, 'MIDI view settings were lost');
       const state = await bridge.getThemeState();
       assert(state.effectiveThemeId === 'theme.starry', 'Theme selection did not persist');
       ${reopen ? `
@@ -59,6 +86,10 @@ export async function runDesktopSmoke(window: BrowserWindow, directory: string, 
         checks: ['installed Electron startup', 'context-isolated IPC', 'song save/load', 'MIDI persistence', 'offline theme persistence'${reopen ? ", 'workstation menu order'" : ""}],
         version: await bridge.getAppVersion() };
     })()`, true);
+    if (reopen) {
+      const editorChecks = await verifyInstalledEditor(window, directory);
+      result.checks.push(...editorChecks);
+    }
     await writeFile(report, JSON.stringify(result, null, 2));
     clearTimeout(timer);
     app.exit(0);

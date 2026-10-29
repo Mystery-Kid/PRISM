@@ -354,7 +354,7 @@ button:disabled { opacity: .38; cursor: not-allowed !important; }
 .lane-gridline { position: absolute; top: 0; bottom: 0; width: 1px; background: #ffffff0c; pointer-events: none; }
 .playhead { position: absolute; top: 0; bottom: 0; z-index: 2; width: 1px; background: #e5e5e8; pointer-events: none; box-shadow: 0 0 5px #fff3; }
 .playhead > span { position: absolute; top: -1px; left: -4px; width: 9px; height: 9px; background: #e5e5e8; clip-path: polygon(0 0, 100% 0, 50% 100%); }
-.audio-clip { position: absolute; top: 17px; height: 77px; min-width: 80px; padding: 6px 7px; overflow: hidden; border: 1px solid #607a97; border-radius: 5px; touch-action: none; cursor: grab; background: linear-gradient(135deg, #283648, #202c3a 80%); color: #dce6f1; user-select: none; }
+.audio-clip { position: absolute; top: 17px; height: 77px; min-width: 1px; padding: 6px 7px; overflow: hidden; border: 1px solid #607a97; border-radius: 5px; touch-action: none; cursor: grab; background: linear-gradient(135deg, #283648, #202c3a 80%); color: #dce6f1; user-select: none; }
 .audio-clip:active { cursor: grabbing; }
 .audio-clip.selected { border-color: #a2b6ce; box-shadow: 0 0 0 1px #b9cce21a; }
 .clip-topline { height: 16px; display: flex; align-items: center; justify-content: space-between; gap: 5px; }
@@ -362,8 +362,9 @@ button:disabled { opacity: .38; cursor: not-allowed !important; }
 .clip-topline button { padding: 2px; display: flex; border: 0; border-radius: 3px; background: transparent; color: #bac7d5; cursor: pointer; opacity: 0; }
 .audio-clip:hover .clip-topline button, .audio-clip.selected .clip-topline button { opacity: 1; }
 .clip-topline button:hover { color: white; background: #ffffff21; }
-.waveform { height: 38px; display: flex; align-items: center; gap: 1px; overflow: hidden; margin-top: 2px; opacity: .86; }
-.waveform span { flex: 1 1 auto; min-width: 1px; max-width: 4px; background: #a1b9d0; border-radius: 1px; }
+.waveform { width: 100%; height: 38px; display: block; overflow: hidden; margin-top: 2px; opacity: .86; }
+.waveform path { fill: none; stroke: #a1b9d0; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.waveform-baseline { stroke: #ffffff24; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .clip-duration { position: absolute; right: 7px; bottom: 4px; color: #9db1c5; font-size: 7px; font-variant-numeric: tabular-nums; }
 .arrangement-footer { height: 24px; flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-top: 1px solid #252528; background: #151517; color: #74747c; font-size: 8px; }
 .lower-panel { height: 190px; flex: 0 0 auto; background: #171719; border-top: 1px solid #343438; }
@@ -602,12 +603,12 @@ html[data-theme="theme.starry"] .shortcut-change, html[data-theme="theme.starry"
 .track-buttons { top: 7px; }
 .arm-toggle.armed { color: #ffc0b8; background: #713a36; border-color: #a25e57; }
 .timeline-lane { cursor: crosshair; }
-.audio-clip { display: flex; padding: 0; min-width: 74px; border-color: #786447; background: #302a21; color: #eee1cb; overflow: visible; }
+.audio-clip { display: flex; padding: 0; min-width: 1px; border-color: #786447; background: #302a21; color: #eee1cb; overflow: visible; }
 .audio-clip.selected { border-color: #dbb87f; box-shadow: 0 0 0 1px #dbb87f30; }
 .clip-body { position: relative; min-width: 0; width: 100%; padding: 6px 7px; overflow: hidden; border-radius: 4px; cursor: grab; touch-action: none; }
 .clip-body:active { cursor: grabbing; }
 .clip-topline button { opacity: .55; }
-.waveform span { background: #c4a878; }
+.waveform path { stroke: #c4a878; }
 .clip-duration { color: #cbb58f; }
 .trim-edge { position: absolute; z-index: 3; top: 0; bottom: 0; width: 7px; padding: 0; border: 0; background: transparent; cursor: ew-resize; touch-action: none; }
 .trim-edge:hover { background: #e5c68d66; }
@@ -906,7 +907,7 @@ html[data-theme="theme.starry"] .track-column-heading { color: #a4b3b7; }
 .track-db { color: #777f81; font: 7px var(--font-mono); white-space: nowrap; }
 .track-level { bottom: 27px; }
 .track-pan { bottom: 6px; }
-.midi-clip { position: absolute; top: 20px; height: 66px; min-width: 62px; overflow: visible; border: 1px solid #567f82; border-radius: 4px; background: #1b343b; color: #d5eeee; }
+.midi-clip { position: absolute; top: 20px; height: 66px; min-width: 1px; overflow: visible; border: 1px solid #567f82; border-radius: 4px; background: #1b343b; color: #d5eeee; }
 .midi-clip.selected { border-color: #8ac9c6; box-shadow: 0 0 0 1px #9de1da35; }
 .midi-clip-body { position: absolute; inset: 0; display: block; width: 100%; padding: 5px 6px; border: 0; border-radius: inherit; overflow: hidden; color: inherit; background: transparent; text-align: left; cursor: grab; touch-action: none; }
 .midi-clip-body:active { cursor: grabbing; }
@@ -979,3 +980,249 @@ html[data-theme="theme.starry"] .track-column-heading { color: #a4b3b7; }
   .edit-tool-button { padding: 0 4px; font-size: 7px; }
   .edit-tool-group { gap: 0; }
 }
+
+/* Arrangement geometry: header and lane share one live origin at every width. */
+.timeline-content {
+  min-width: 100%;
+  position: relative;
+}
+.timeline-ruler-row,
+.timeline-track-row {
+  grid-template-columns: var(--track-header-width) minmax(0, 1fr);
+}
+.timeline-ruler-row {
+  width: max-content;
+  min-width: 100%;
+  height: 35px;
+  position: sticky;
+  top: 0;
+}
+.timeline-track-row {
+  width: max-content;
+  min-height: 0;
+}
+.track-column-heading,
+.track-controls {
+  position: sticky;
+  left: 0;
+  box-sizing: border-box;
+}
+.track-column-heading { overflow: visible; }
+.track-controls {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.track-controls .track-name {
+  width: calc(100% - 136px);
+  max-width: 100px;
+}
+.timeline-lane {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  contain: paint;
+}
+.audio-clip,
+.midi-clip {
+  min-width: 1px;
+}
+.audio-clip { overflow: visible; }
+.clip-body,
+.midi-clip-body { min-width: 0; }
+.timeline-ruler {
+  height: 100%;
+  flex: 0 0 auto;
+}
+.header-resize-grip {
+  position: absolute;
+  z-index: 8;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.header-resize-grip::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: #ffffff10;
+}
+.header-resize-grip:hover::after { background: var(--accent); }
+.track-height-grip {
+  position: absolute;
+  z-index: 7;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 5px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.track-height-grip:hover { background: var(--accent); }
+
+/* Piano roll splits into a fixed-width keywell and an independently clipped edit surface. */
+.piano-roll-layout {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  overflow: hidden;
+  border-top: 1px solid #252529;
+}
+.piano-keyboard-column {
+  flex: 0 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid #45444a;
+  background: #171719;
+}
+.piano-keyboard-corner {
+  height: 22px;
+  flex: 0 0 22px;
+  padding: 5px 7px;
+  border-bottom: 1px solid #343438;
+  color: #85858d;
+  font: 7px "Space Mono", monospace;
+  letter-spacing: .12em;
+}
+.piano-keyboard-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  scrollbar-width: none;
+}
+.piano-keyboard-scroll::-webkit-scrollbar { display: none; }
+.piano-key-row { width: 100%; height: 15px; min-height: 15px; }
+.piano-key-row .piano-key {
+  width: 100%;
+  height: 15px;
+  padding: 2px 5px;
+  line-height: 10px;
+  border-right: 0;
+}
+.piano-edit-column {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.piano-ruler-viewport {
+  height: 22px;
+  flex: 0 0 22px;
+  overflow: hidden;
+  border-bottom: 1px solid #343438;
+  background: #19191b;
+}
+.piano-time-ruler {
+  position: relative;
+  height: 22px;
+  background: repeating-linear-gradient(90deg, transparent 0 calc(var(--piano-beat-width, 54px) - 1px), #ffffff10 calc(var(--piano-beat-width, 54px) - 1px) var(--piano-beat-width, 54px));
+}
+.piano-time-ruler span {
+  position: absolute;
+  top: 5px;
+  padding-left: 5px;
+  color: #aaa9a2;
+  font: 7px "Space Mono", monospace;
+}
+.piano-grid {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: #121214;
+  cursor: crosshair;
+  scrollbar-gutter: stable;
+}
+.piano-time-content {
+  position: relative;
+  min-height: 1920px;
+  background: repeating-linear-gradient(90deg, transparent 0 calc(var(--piano-beat-width) - 1px), #ffffff10 calc(var(--piano-beat-width) - 1px) var(--piano-beat-width));
+}
+.piano-time-content > .piano-row {
+  width: 100%;
+  height: 15px;
+  min-height: 15px;
+}
+.piano-time-content > .piano-row.scale-inside { background: #748f7220; }
+.piano-time-content > .piano-row.scale-outside {
+  background-color: #1010123b;
+  background-image: repeating-linear-gradient(135deg, transparent 0 7px, #ffffff06 7px 8px);
+}
+.piano-time-content > .piano-row.black-key-row { background-color: #0c0c0f62; }
+.piano-time-content > .piano-row.black-key-row.scale-inside { background-color: #536c612f; }
+.scale-row-label {
+  position: absolute;
+  right: 4px;
+  top: 2px;
+  z-index: 0;
+  color: #777a76;
+  font: 5px "Space Mono", monospace;
+  pointer-events: none;
+}
+.piano-key-row.scale-inside .piano-key { color: #d7c19d; }
+.piano-key-row.scale-outside .piano-key { color: #707078; }
+.piano-key-row.scale-inside .piano-key::after {
+  content: "IN";
+  float: right;
+  color: #a99875;
+  font: 5px "Space Mono", monospace;
+}
+.piano-key-row.scale-outside .piano-key::after {
+  content: "OUT";
+  float: right;
+  color: #66666c;
+  font: 5px "Space Mono", monospace;
+}
+.piano-tools .midi-view-toggle.active {
+  color: #e8d3ac;
+  border-color: #826b47;
+  background: #403421;
+}
+.piano-tools .song-key-control select {
+  min-width: 74px;
+  height: 25px;
+  padding: 0 6px;
+  border: 1px solid #383d42;
+  border-radius: 4px;
+  color: #d7d9d6;
+  background: #161a1e;
+  font-size: 9px;
+}
+.scale-guide-legend,
+.song-key-prompt {
+  flex: 0 0 auto;
+  color: #a69a80;
+  font: 7px "Space Mono", monospace;
+  white-space: nowrap;
+}
+.song-key-prompt { color: #d4a577; }
+.song-settings { position: relative; font-size: 10px; }
+.song-settings > summary { cursor: pointer; color: var(--muted); white-space: nowrap; }
+.song-settings-popover {
+  position: absolute; right: 0; top: 26px; z-index: 70; width: 245px;
+  padding: 15px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel, #17191d); box-shadow: 0 10px 30px #0008;
+}
+.song-settings-popover .song-key-control { display: flex; justify-content: space-between; margin-bottom: 12px; }
+.song-settings-popover select { max-width: 140px; color: var(--text); background: var(--bg, #101114); }
+.song-settings-popover p { margin: 4px 0 0; color: var(--muted); line-height: 1.6; }
+html[data-theme="theme.starry"] .piano-tools .midi-view-toggle.active {
+  color: #c8ffff;
+  border-color: #60c1c1;
+  background: #173b40;
+}
+html[data-theme="theme.starry"] .piano-time-content > .piano-row.scale-inside { background-color: #60c1c124; }
+html[data-theme="theme.starry"] .piano-key-row.scale-inside .piano-key::after,
+html[data-theme="theme.starry"] .scale-guide-legend { color: #60c1c1; }
