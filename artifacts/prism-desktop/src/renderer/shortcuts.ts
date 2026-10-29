@@ -12,12 +12,25 @@ export type ShortcutCommandId =
   | "transport.toggle"
   | "transport.stop"
   | "transport.home"
+  | "transport.record"
+  | "transport.loop"
+  | "transport.metronome"
   | "transport.stepBack"
   | "transport.stepForward"
   | "project.save"
+  | "project.saveAs"
+  | "project.export"
   | "project.library"
+  | "project.new"
+  | "project.open"
+  | "project.exit"
   | "edit.undo"
   | "edit.redo"
+  | "edit.cut"
+  | "edit.copy"
+  | "edit.paste"
+  | "edit.selectAll"
+  | "edit.clearSelection"
   | "edit.duplicate"
   | "edit.delete"
   | "edit.split"
@@ -34,6 +47,7 @@ export type ShortcutCommandId =
   | "view.zoomIn"
   | "view.zoomOut"
   | "view.zoomReset"
+  | "view.fit"
   | "panel.mixer"
   | "panel.piano"
   | "panel.effects"
@@ -57,17 +71,30 @@ export const shortcutRegistry: readonly ShortcutCommand[] = [
   { id: "transport.toggle", label: "Play or pause", description: "Start or pause the song.", category: "transport", contexts: ["global"], defaultBinding: "Space" },
   { id: "transport.stop", label: "Stop playback", description: "Stop playback without moving the playhead.", category: "transport", contexts: ["global"], defaultBinding: "Escape" },
   { id: "transport.home", label: "Return playhead to start", description: "Stop playback and return to the beginning.", category: "transport", contexts: ["global"], defaultBinding: "Home" },
+  { id: "transport.record", label: "Record", description: "Start or stop audio recording.", category: "transport", contexts: ["global"], defaultBinding: "R" },
+  { id: "transport.loop", label: "Toggle loop", description: "Enable or disable the loop range.", category: "transport", contexts: ["global"], defaultBinding: "L" },
+  { id: "transport.metronome", label: "Toggle metronome", description: "Enable or disable the metronome.", category: "transport", contexts: ["global"], defaultBinding: "K" },
   { id: "transport.stepBack", label: "Move playhead left", description: "Move one grid step in the arrangement.", category: "transport", contexts: ["arrangement"], defaultBinding: "ArrowLeft" },
   { id: "transport.stepForward", label: "Move playhead right", description: "Move one grid step in the arrangement.", category: "transport", contexts: ["arrangement"], defaultBinding: "ArrowRight" },
   { id: "project.save", label: "Save project", description: "Save the current session on this device.", category: "project", contexts: ["global"], defaultBinding: "Mod+S" },
+  { id: "project.saveAs", label: "Save project as", description: "Save a separate portable project file.", category: "project", contexts: ["global"], defaultBinding: "Mod+Shift+S" },
+  { id: "project.export", label: "Export audio", description: "Render the current song to a WAV file.", category: "project", contexts: ["global"], defaultBinding: "Mod+E" },
   { id: "project.library", label: "Return to project library", description: "Save and leave the current workstation.", category: "project", contexts: ["global"], defaultBinding: "Mod+Shift+H" },
+  { id: "project.new", label: "New project", description: "Save the current song and create a new project.", category: "project", contexts: ["global"], defaultBinding: "" },
+  { id: "project.open", label: "Open project", description: "Save the current song and open a portable project.", category: "project", contexts: ["global"], defaultBinding: "" },
+  { id: "project.exit", label: "Exit PRISM", description: "Save the current song and close PRISM.", category: "project", contexts: ["global"], defaultBinding: "" },
   { id: "edit.undo", label: "Undo", description: "Restore the previous saved edit state.", category: "global", contexts: ["global"], defaultBinding: "Mod+Z" },
   { id: "edit.redo", label: "Redo", description: "Restore the next edit state.", category: "global", contexts: ["global"], defaultBinding: "Mod+Shift+Z" },
+  { id: "edit.cut", label: "Cut selection", description: "Copy and remove the selected clip or note.", category: "arrangement", contexts: ["arrangement", "piano"], defaultBinding: "Mod+X" },
+  { id: "edit.copy", label: "Copy selection", description: "Copy the selected clip or note.", category: "arrangement", contexts: ["arrangement", "piano"], defaultBinding: "Mod+C" },
+  { id: "edit.paste", label: "Paste selection", description: "Paste the copied clip or note.", category: "arrangement", contexts: ["arrangement", "piano"], defaultBinding: "Mod+V" },
+  { id: "edit.selectAll", label: "Select all", description: "Select all clips or notes in the active editor.", category: "arrangement", contexts: ["arrangement", "piano"], defaultBinding: "Mod+A" },
+  { id: "edit.clearSelection", label: "Clear selection", description: "Clear the current clip or note selection.", category: "arrangement", contexts: ["arrangement", "piano"], defaultBinding: "" },
   { id: "edit.duplicate", label: "Duplicate selection", description: "Copy the selected clip or MIDI note.", category: "arrangement", contexts: ["arrangement", "piano"], defaultBinding: "Mod+D" },
   { id: "edit.delete", label: "Delete selection", description: "Remove the selected clip or MIDI note.", category: "arrangement", contexts: ["arrangement", "piano"], defaultBinding: "Delete" },
-  { id: "edit.split", label: "Split selection at playhead", description: "Split the selected clip or MIDI note at the playhead.", category: "arrangement", contexts: ["arrangement", "piano"], defaultBinding: "Mod+Shift+S" },
-  { id: "edit.addNote", label: "Add MIDI note", description: "Create a note at the playhead on the selected MIDI track.", category: "piano", contexts: ["piano"], defaultBinding: "N" },
-  { id: "edit.toggleSnap", label: "Toggle snap", description: "Turn grid snapping on or off.", category: "arrangement", contexts: ["arrangement", "piano"], defaultBinding: "G" },
+  { id: "edit.split", label: "Split selection at playhead", description: "Split the selected clip or MIDI note at the playhead.", category: "arrangement", contexts: ["arrangement", "piano"], defaultBinding: "S" },
+  { id: "edit.addNote", label: "Add MIDI note", description: "Create a note at the playhead on the selected MIDI track.", category: "piano", contexts: ["piano"], defaultBinding: "" },
+  { id: "edit.toggleSnap", label: "Toggle snap", description: "Turn grid snapping on or off.", category: "arrangement", contexts: ["arrangement", "piano"], defaultBinding: "N" },
   { id: "edit.nudgeLeft", label: "Nudge note left", description: "Move the selected MIDI note one grid step earlier.", category: "piano", contexts: ["piano"], defaultBinding: "ArrowLeft" },
   { id: "edit.nudgeRight", label: "Nudge note right", description: "Move the selected MIDI note one grid step later.", category: "piano", contexts: ["piano"], defaultBinding: "ArrowRight" },
   { id: "edit.nudgeUp", label: "Raise note pitch", description: "Move the selected MIDI note up one semitone.", category: "piano", contexts: ["piano"], defaultBinding: "ArrowUp" },
@@ -79,6 +106,7 @@ export const shortcutRegistry: readonly ShortcutCommand[] = [
   { id: "view.zoomIn", label: "Zoom in", description: "Increase arrangement timeline zoom.", category: "arrangement", contexts: ["arrangement"], defaultBinding: "Mod+ArrowUp" },
   { id: "view.zoomOut", label: "Zoom out", description: "Decrease arrangement timeline zoom.", category: "arrangement", contexts: ["arrangement"], defaultBinding: "Mod+ArrowDown" },
   { id: "view.zoomReset", label: "Reset zoom", description: "Return the timeline to its default zoom.", category: "arrangement", contexts: ["arrangement"], defaultBinding: "Mod+0" },
+  { id: "view.fit", label: "Fit selection to view", description: "Fit the selected clip or project duration in the timeline.", category: "arrangement", contexts: ["arrangement"], defaultBinding: "F" },
   { id: "panel.mixer", label: "Open mixer", description: "Show the mixer panel.", category: "mixer", contexts: ["global"], defaultBinding: "F6" },
   { id: "panel.piano", label: "Open piano roll", description: "Show the MIDI editor.", category: "piano", contexts: ["global"], defaultBinding: "F7" },
   { id: "panel.effects", label: "Open effects", description: "Show track, bus, and master effects.", category: "effects", contexts: ["global"], defaultBinding: "F8" },
@@ -265,7 +293,14 @@ export function loadShortcutBindings(): { bindings: ShortcutBindings; error: str
   try {
     const stored = localStorage.getItem(shortcutStorageKey);
     if (!stored) return { bindings: defaults, error: "" };
-    return { bindings: parseShortcutProfile(JSON.parse(stored)), error: "" };
+    const bindings = parseShortcutProfile(JSON.parse(stored));
+    const conflicts = findShortcutConflicts(bindings);
+    return {
+      bindings,
+      error: conflicts.length
+        ? `Saved shortcut conflicts (${conflicts.map((item) => item.binding).join(", ")}). Resolve them in Preferences > Shortcuts; ambiguous shortcuts will not run.`
+        : "",
+    };
   } catch (cause) {
     return {
       bindings: defaults,

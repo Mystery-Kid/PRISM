@@ -1,4 +1,39 @@
-import type { MidiNote } from "@shared/types";
+import type { MidiClip, MidiNote } from "@shared/types";
+
+/**
+ * Plan a paste entirely in musical beats. Reuse a selected clip only when the
+ * insertion starts inside it, extending its right edge as needed. A paste
+ * outside that interval creates its own clip, never clamps or shortens notes.
+ */
+export function pasteMidiNotes(input: {
+  notes: readonly MidiNote[];
+  clips: readonly MidiClip[];
+  selectedClipId: string | null;
+  playheadBeat: number;
+  sourceOriginBeat: number;
+  createId: () => string;
+}): { clips: MidiClip[]; notes: MidiNote[]; clipId: string } {
+  if (!input.notes.length) throw new Error("Select MIDI notes before pasting.");
+  const moved = input.notes.map((note) => ({
+    ...note,
+    startBeat: input.playheadBeat + note.startBeat - input.sourceOriginBeat,
+  }));
+  const startBeat = Math.min(...moved.map((note) => note.startBeat));
+  const endBeat = Math.max(...moved.map((note) => note.startBeat + note.durationBeats));
+  const selected = input.clips.find((clip) => clip.id === input.selectedClipId);
+  const reuse = selected && startBeat >= selected.startBeat &&
+    startBeat <= selected.startBeat + selected.durationBeats;
+  const clip: MidiClip = reuse
+    ? { ...selected, durationBeats: Math.max(selected.durationBeats, endBeat - selected.startBeat) }
+    : { id: input.createId(), name: "MIDI Clip", startBeat, durationBeats: Math.max(4, endBeat - startBeat) };
+  return {
+    clips: reuse
+      ? input.clips.map((item) => item.id === clip.id ? clip : item)
+      : [...input.clips, clip],
+    notes: moved.map((note) => ({ ...note, id: input.createId(), midiClipId: clip.id })),
+    clipId: clip.id,
+  };
+}
 
 export type PianoNoteDragState = {
   pointerStartX: number;

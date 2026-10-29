@@ -6,12 +6,31 @@ import {
   getDefaultShortcutBindings,
   getShortcutPlatform,
   isEditableTarget,
+  loadShortcutBindings,
   matchesShortcut,
   normalizeShortcut,
   parseShortcutProfile,
   serializeShortcutProfile,
   shortcutFromEvent,
 } from "./shortcuts";
+
+test("saved shortcut conflicts remain editable and produce an explicit warning", () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  try {
+    const bindings = getDefaultShortcutBindings();
+    bindings["edit.addNote"] = "N";
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: { getItem: () => serializeShortcutProfile(bindings) },
+    });
+    const loaded = loadShortcutBindings();
+    assert.match(loaded.error, /conflicts.*N/);
+    assert.equal(loaded.bindings["edit.addNote"], "N", "Custom assignments must not be silently reset.");
+  } finally {
+    if (previous) Object.defineProperty(globalThis, "localStorage", previous);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  }
+});
 
 function keyEvent(overrides: Partial<KeyboardEvent> = {}): KeyboardEvent {
   return {
@@ -85,5 +104,37 @@ test("binding conflicts only apply where command contexts overlap", () => {
   }]);
   defaults["edit.undo"] = "Mod+Z";
   defaults["edit.nudgeLeft"] = "ArrowLeft";
+  assert.deepEqual(findShortcutConflicts(defaults), []);
+});
+
+test("required workstation defaults are platform-neutral and conflict-free", () => {
+  const defaults = getDefaultShortcutBindings();
+  assert.deepEqual({
+    play: defaults["transport.toggle"],
+    record: defaults["transport.record"],
+    home: defaults["transport.home"],
+    split: defaults["edit.split"],
+    delete: defaults["edit.delete"],
+    undo: defaults["edit.undo"],
+    redo: defaults["edit.redo"],
+    cut: defaults["edit.cut"],
+    copy: defaults["edit.copy"],
+    paste: defaults["edit.paste"],
+    duplicate: defaults["edit.duplicate"],
+    selectAll: defaults["edit.selectAll"],
+    save: defaults["project.save"],
+    saveAs: defaults["project.saveAs"],
+    export: defaults["project.export"],
+    snap: defaults["edit.toggleSnap"],
+    loop: defaults["transport.loop"],
+    metronome: defaults["transport.metronome"],
+    fit: defaults["view.fit"],
+  }, {
+    play: "Space", record: "R", home: "Home", split: "S", delete: "Delete",
+    undo: "Mod+Z", redo: "Mod+Shift+Z", cut: "Mod+X", copy: "Mod+C",
+    paste: "Mod+V", duplicate: "Mod+D", selectAll: "Mod+A", save: "Mod+S",
+    saveAs: "Mod+Shift+S", export: "Mod+E", snap: "N", loop: "L",
+    metronome: "K", fit: "F",
+  });
   assert.deepEqual(findShortcutConflicts(defaults), []);
 });

@@ -10,6 +10,10 @@ import type {
 } from "@shared/types";
 
 const bridge: AppBridge = {
+  saveProjectAs: (session) => ipcRenderer.invoke("prism:project:save-as", session),
+  openProject: () => ipcRenderer.invoke("prism:project:open"),
+  getAppVersion: () => ipcRenderer.invoke("prism:app:version"),
+  requestExit: () => ipcRenderer.invoke("prism:app:exit"),
   getThemeState: () => ipcRenderer.invoke("prism:themes:get"),
   claimTheme: (id) => ipcRenderer.invoke("prism:themes:claim", id),
   applyTheme: (id) => ipcRenderer.invoke("prism:themes:apply", id),

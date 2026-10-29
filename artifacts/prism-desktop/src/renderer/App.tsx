@@ -156,10 +156,29 @@ export default function App() {
     }
   };
 
+  const createWorkstationProject = async () => {
+    const created = await window.prism.createRelease({
+      title: "Untitled Project",
+      artistName: "",
+      releaseType: "Single",
+      description: "",
+    });
+    if (!created.session) throw new Error("A new project session could not be created.");
+    await refreshReleases();
+    setSession(created.session);
+    setDestination({ screen: "workstation", sessionId: created.session.id });
+  };
+  const openPortableProject = async (release: Release, openedSession: SongSession) => {
+    setReleases((current) => [release, ...current.filter((item) => item.id !== release.id)]);
+    setSession(openedSession);
+    setDestination({ screen: "workstation", sessionId: openedSession.id });
+    await refreshReleases();
+  };
+
   if (loading) return <div className="app-loading"><span className="loading-ring" /><span>Opening your studio…</span></div>;
   if (destination.screen === "workstation" && session) {
     const releaseTitle = releases.find((release) => release.id === session.releaseId)?.title ?? "Project";
-    return <><Workstation session={session} releaseTitle={releaseTitle} onBack={() => void navigateBackFromWorkstation()} onHome={() => { void refreshReleases(); setDestination({ screen: "projects" }); }} onSettings={() => setSettingsOpen(true)} />{settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}{pageError && <div className="global-error" role="alert">{pageError}<button onClick={() => setPageError("")}>Dismiss</button></div>}</>;
+    return <><Workstation session={session} releaseTitle={releaseTitle} onBack={() => void navigateBackFromWorkstation()} onHome={() => { void refreshReleases(); setDestination({ screen: "projects" }); }} onSettings={() => setSettingsOpen(true)} onNewProject={createWorkstationProject} onOpenProject={openPortableProject} />{settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} onKeyboardShortcuts={() => window.dispatchEvent(new Event("prism:open-shortcuts"))} />}{pageError && <div className="global-error" role="alert">{pageError}<button onClick={() => setPageError("")}>Dismiss</button></div>}</>;
   }
 
   return (

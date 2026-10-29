@@ -42,6 +42,15 @@ export type MidiNote = {
   startBeat: number;
   durationBeats: number;
   velocity: number;
+  /** Optional arrangement clip association; legacy notes remain absolute-beat events. */
+  midiClipId?: string;
+};
+
+export type MidiClip = {
+  id: string;
+  name: string;
+  startBeat: number;
+  durationBeats: number;
 };
 
 export type InstrumentState = {
@@ -157,6 +166,8 @@ export type Track = {
   recordArmed: boolean;
   clips: AudioClip[];
   notes: MidiNote[];
+  /** Optional grouping for arrangement editing; notes remain absolute beats for engine compatibility. */
+  midiClips?: MidiClip[];
   instrument: InstrumentState | null;
   sampler?: SamplerState | null;
   drumKit?: DrumKitState | null;
@@ -223,6 +234,10 @@ export type CreateSongInput = {
 };
 
 export type AppBridge = {
+  saveProjectAs(session: SongSession): Promise<string | null>;
+  openProject(): Promise<{ release: Release; session: SongSession } | null>;
+  getAppVersion(): Promise<string>;
+  requestExit(): Promise<void>;
   getThemeState(): Promise<import("./themes").ThemeState>;
   claimTheme(themeId: string): Promise<import("./themes").ThemeState>;
   applyTheme(themeId: string): Promise<import("./themes").ThemeState>;

@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Check, Download, LoaderCircle, RotateCw, Sparkles } from "lucide-react";
 import { STARRY_ID, themeProducts } from "@shared/themes";
 import { useThemes } from "../themes/ThemeProvider";
-import starryPreview from "../assets/starry-preview.svg";
+import starryPreview from "../assets/starry-moon.png";
 
 export function ThemeShop() {
   const { state, loading, error, reload, claim, apply, repair } = useThemes();
