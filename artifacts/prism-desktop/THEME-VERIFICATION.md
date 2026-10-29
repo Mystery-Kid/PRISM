@@ -49,8 +49,10 @@ the script does not modify a user's normal projects or appearance settings.
 
 - Silent-sink clock/graph continuity is not a physical audio-output, driver,
   latency or microphone test.
-- Reduced-motion media emulation tests the installed renderer's response; it
-  does not change the runner's Windows accessibility settings.
+- Both normal and reduced motion are explicitly emulated because Windows CI
+  can prefer reduced motion by default. The host preference is restored.
+- Native captures wait for compositor frames after UI actions; DOM state alone
+  is not treated as visual evidence.
 - Captures and computed-color checks do not replace exhaustive assistive-
   technology or display-hardware testing.
 - The deferred cross-type right-click selection bug remains unchanged.

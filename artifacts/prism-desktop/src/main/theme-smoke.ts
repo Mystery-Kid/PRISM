@@ -50,8 +50,16 @@ function browser(window: BrowserWindow) {
     `(async()=>{${helpers}\n${code}})()`, true);
 }
 const settle = () => new Promise((resolve) => setTimeout(resolve, 430));
-const capture = async (window: BrowserWindow, directory: string, name: string) =>
-  writeFile(join(directory, `${name}.png`), (await window.webContents.capturePage()).toPNG());
+export async function captureThemeScreenshot(window: BrowserWindow, directory: string, name: string, settleMs = 120) {
+  window.show();
+  window.focus();
+  window.webContents.focus();
+  await window.webContents.executeJavaScript(
+    `new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`, true);
+  await new Promise((resolve) => setTimeout(resolve, settleMs));
+  await writeFile(join(directory, `${name}.png`), (await window.webContents.capturePage()).toPNG());
+}
+const capture = captureThemeScreenshot;
 
 export async function verifyInitialDay(window: BrowserWindow, directory: string): Promise<string[]> {
   const evaluate = browser(window);
@@ -114,6 +122,7 @@ export async function verifyInstalledThemes(window: BrowserWindow, directory: st
   const original = await evaluate<string>(`
     window.__prismSmokeWorkstation=document.querySelector('.workstation');
     window.__prismSmokeTimeOrigin=performance.timeOrigin;
+    document.querySelector('.timeline-scroll').scrollLeft=0;
     const session=await stored();
     return JSON.stringify({tracks:session.tracks, buses:session.buses, masterEffects:session.masterEffects});
   `);

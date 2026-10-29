@@ -70,9 +70,12 @@ html, body, #root { background-color: var(--bg); }
   pointer-events: none;
   opacity: 0;
   background-image: url("./assets/starry-moon.png");
-  background-position: left top;
+  /* Shift the reference canvas so its moon occupies a quiet right-hand field. */
+  background-position: 62vw 35vh;
   background-repeat: no-repeat;
   background-size: min(100vw, 1536px) auto;
+  -webkit-mask-image: linear-gradient(90deg, transparent 58vw, #000 71vw);
+  mask-image: linear-gradient(90deg, transparent 58vw, #000 71vw);
   transition: opacity var(--theme-transition-duration) ease;
 }
 html[data-theme="theme.starry"] .theme-art-layer { opacity: .66; }
@@ -434,7 +437,7 @@ html[data-theme="theme.starry"] .transport-bar,
 html[data-theme="theme.starry"] .arrangement-toolbar,
 html[data-theme="theme.starry"] .lower-panel,
 html[data-theme="theme.starry"] .workstation-bottom { background-color: #101827d9; border-color: #29384a; }
-html[data-theme="theme.starry"] .timeline-scroll,
+html[data-theme="theme.starry"] .timeline-scroll { background-color: #0b14206b; }
 html[data-theme="theme.starry"] .timeline-lane { background-color: #0b1420c9; }
 html[data-theme="theme.starry"] .timeline-ruler-row,
 html[data-theme="theme.starry"] .track-column-heading,
@@ -470,7 +473,7 @@ html:root[data-theme="theme.starry"] .transport-bar,
 html:root[data-theme="theme.starry"] .arrangement-toolbar,
 html:root[data-theme="theme.starry"] .lower-panel,
 html:root[data-theme="theme.starry"] .workstation-bottom { background-color: #101827d9; border-color: #29384a; }
-html:root[data-theme="theme.starry"] .timeline-scroll,
+html:root[data-theme="theme.starry"] .timeline-scroll { background-color: #0b14206b; }
 html:root[data-theme="theme.starry"] .timeline-lane { background-color: #0b1420c9; }
 html:root[data-theme="theme.starry"] .timeline-ruler-row,
 html:root[data-theme="theme.starry"] .track-column-heading,

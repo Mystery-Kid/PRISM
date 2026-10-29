@@ -2,7 +2,7 @@ import { app, type BrowserWindow } from "electron";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { verifyInstalledEditor } from "./editor-smoke";
-import { verifyInitialDay, verifyInstalledThemes } from "./theme-smoke";
+import { captureThemeScreenshot, verifyInitialDay, verifyInstalledThemes } from "./theme-smoke";
 
 /** Opt-in installed-app check. Always uses isolated userData supplied by CI. */
 export async function runDesktopSmoke(window: BrowserWindow, directory: string, reopen: boolean): Promise<void> {
@@ -95,7 +95,7 @@ export async function runDesktopSmoke(window: BrowserWindow, directory: string, 
     })()`, true);
     if (themeRestart) {
       result.checks.push("Starry selection survives a second process restart");
-      await writeFile(join(directory, "theme-starry-library-restarted.png"), (await window.webContents.capturePage()).toPNG());
+      await captureThemeScreenshot(window, directory, "theme-starry-library-restarted", 450);
     } else if (reopen) {
       const editorChecks = await verifyInstalledEditor(window, directory);
       result.checks.push(...editorChecks);
