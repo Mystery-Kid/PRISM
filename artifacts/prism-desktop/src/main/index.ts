@@ -34,10 +34,22 @@ import {
   type StoredAsset,
 } from "../shared/migrations";
 import { createLibraryBackup, restoreLibraryBackup } from "./project-backup";
+import { writeAtomicText } from "./atomic-write";
+import {
+  createEffectPresetFile,
+  maxEffectPresetBytes,
+  normalizeStoredEffectPreset,
+  parseEffectPresetFile,
+  upsertEffectPreset,
+  visibleEffectPresets,
+} from "../shared/effect-presets";
+import { normalizeEffectChain } from "../shared/effect-definitions";
 import type {
   AudioClip,
   CreateReleaseInput,
   CreateSongInput,
+  EffectChainPreset,
+  EffectChainPresetFile,
   EffectState,
   ExportWavInput,
   ProjectAsset,
@@ -85,16 +97,14 @@ let closeApproved = false;
 const activeRecordings = new Map<string, ActiveRecording>();
 
 function emptyLibrary(): ProjectLibrary {
-  return { version: 3, releases: [], sessions: [], assets: [] };
+  return { version: 3, releases: [], sessions: [], assets: [], effectPresets: [] };
 }
 
 async function persistLibrary(): Promise<void> {
   if (!library || !libraryFile) throw new Error("The project library is not ready.");
   const snapshot = JSON.stringify(library, null, 2);
   const operation = writeQueue.then(async () => {
-    const tempFile = `${libraryFile}.tmp`;
-    await writeFile(tempFile, snapshot, "utf8");
-    await rename(tempFile, libraryFile);
+    await writeAtomicText(libraryFile, snapshot);
   });
   writeQueue = operation.catch(() => {
     writeQueue = Promise.resolve();
@@ -590,8 +600,14 @@ function registerIpcHandlers(): void {
       !Number.isFinite(updated.tempo) ||
       !Number.isFinite(updated.masterVolume) ||
       !Array.isArray(updated.masterEffects) ||
+      updated.masterEffects.length > 64 ||
       new Set(updated.tracks.map((track) => track.id)).size !== updated.tracks.length
     ) throw new Error("The session contains invalid transport or track settings.");
+    const masterEffects = normalizeEffectChain(updated.masterEffects);
+    const tracksWithValidatedEffects = updated.tracks.map((track) => ({
+      ...track,
+      effects: normalizeEffectChain(track.effects),
+    }));
     if (
       updated.loopRange?.enabled &&
       (!Number.isFinite(updated.loopRange.startSeconds) ||
@@ -599,7 +615,7 @@ function registerIpcHandlers(): void {
         updated.loopRange.startSeconds < 0 ||
         updated.loopRange.endSeconds <= updated.loopRange.startSeconds)
     ) throw new Error("The loop range is invalid.");
-    for (const track of updated.tracks) {
+    for (const track of tracksWithValidatedEffects) {
       if (
         !["audio", "instrument"].includes(track.type) ||
         !Array.isArray(track.effects) ||
@@ -644,6 +660,8 @@ function registerIpcHandlers(): void {
     }
     const saved = {
       ...updated,
+      tracks: tracksWithValidatedEffects,
+      masterEffects,
       title: cleanTitle(updated.title),
       tempo: Math.min(300, Math.max(20, Math.round(updated.tempo))),
       masterVolume: Math.min(1.5, Math.max(0, updated.masterVolume)),
@@ -654,6 +672,78 @@ function registerIpcHandlers(): void {
     getRelease(saved.releaseId).updatedAt = saved.updatedAt;
     await persistLibrary();
     return saved;
+  });
+  handle("prism:effects:presets:list", async (_event, projectId: string) => {
+    getRelease(projectId);
+    return visibleEffectPresets(getLibrary().effectPresets, projectId);
+  });
+  handle("prism:effects:presets:save", async (_event, input: Omit<EffectChainPreset, "createdAt" | "updatedAt">) => {
+    const preset = normalizeStoredEffectPreset({
+      ...input,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    if (preset.scope === "project") getRelease(preset.projectId!);
+    const previous = getLibrary().effectPresets;
+    getLibrary().effectPresets = upsertEffectPreset(previous, input);
+    try {
+      await persistLibrary();
+      return getLibrary().effectPresets.find((item) => item.id === preset.id)!;
+    } catch (error) {
+      getLibrary().effectPresets = previous;
+      throw error;
+    }
+  });
+  handle("prism:effects:presets:delete", async (_event, presetId: string, projectId: string) => {
+    getRelease(projectId);
+    const previous = getLibrary().effectPresets;
+    const existing = previous.find((preset) => preset.id === presetId);
+    if (!existing) return;
+    if (existing.scope === "project" && existing.projectId !== projectId) {
+      throw new Error("This preset belongs to another project.");
+    }
+    getLibrary().effectPresets = previous.filter((preset) => preset.id !== presetId);
+    try {
+      await persistLibrary();
+    } catch (error) {
+      getLibrary().effectPresets = previous;
+      throw error;
+    }
+  });
+  handle("prism:effects:presets:import", async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: "Import PRISM effect preset",
+      properties: ["openFile"],
+      filters: [{ name: "PRISM Effect Preset", extensions: ["json"] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    const path = result.filePaths[0];
+    const info = await stat(path);
+    if (info.size > maxEffectPresetBytes) throw new Error("Effect preset files are limited to 1 MiB.");
+    const contents = await readFile(path, "utf8");
+    if (Buffer.byteLength(contents, "utf8") > maxEffectPresetBytes) {
+      throw new Error("Effect preset files are limited to 1 MiB.");
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(contents);
+    } catch {
+      throw new Error("The selected file is not valid JSON.");
+    }
+    return parseEffectPresetFile(parsed);
+  });
+  handle("prism:effects:presets:export", async (_event, input: EffectChainPresetFile) => {
+    const preset = parseEffectPresetFile(input);
+    const safeName = preset.name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").trim() || "Effects";
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      title: "Export PRISM effect preset",
+      defaultPath: `${safeName}.prismeffects.json`,
+      filters: [{ name: "PRISM Effect Preset", extensions: ["json"] }],
+    });
+    if (result.canceled || !result.filePath) return false;
+    const contents = `${JSON.stringify(createEffectPresetFile(preset.name, preset.effects), null, 2)}\n`;
+    await writeAtomicText(result.filePath, contents);
+    return true;
   });
   handle("prism:artwork:choose", async (_event, releaseId: string) => {
     const release = getRelease(releaseId);

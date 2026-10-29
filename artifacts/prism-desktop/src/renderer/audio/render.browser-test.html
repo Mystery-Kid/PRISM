@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>PRISM Audio and Effect Preset Test</title>
+  </head>
+  <body>
+    <pre id="result">RUNNING</pre>
+    <script type="module">
+      import { renderSessionWav } from "./render.ts";
+      import { AudioEngine } from "./AudioEngine.ts";
+      import { createElement, useState } from "react";
+      import { createRoot } from "react-dom/client";
+      import { EffectsPanel } from "../components/EffectsPanel.tsx";
+
+      const result = document.getElementById("result");
+      const report = (message) => fetch("/__prism_audio_test_result", {
+        method: "POST",
+        body: JSON.stringify(message),
+      });
+      const assert = (condition, message) => { if (!condition) throw new Error(message); };
+      assert.equal = (actual, expected, message = "") =>
+        assert(Object.is(actual, expected), message || `Expected ${String(actual)} to equal ${String(expected)}.`);
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const pcmRms = (bytes, fromSeconds = 0.1, toSeconds = 0.3) => {
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        let sum = 0, count = 0;
+        for (let frame = Math.floor(fromSeconds * 48000); frame < Math.floor(toSeconds * 48000); frame++) {
+          const offset = 44 + frame * 4;
+          if (offset + 1 >= bytes.byteLength) break;
+          const sample = view.getInt16(offset, true) / 32768;
+          sum += sample * sample;
+          count++;
+        }
+        return Math.sqrt(sum / Math.max(1, count));
+      };
+      const render = (session) => renderSessionWav(session, async () => {
+        throw new Error("The MIDI-only render must not request audio assets.");
+      });
+      const testEffectsWorkspace = async (session) => {
+        const stored = [];
+        const notices = [];
+        let exportedFile = null;
+        window.confirm = () => true;
+        window.prism = {
+          listEffectPresets: async (projectId) => stored.filter((preset) =>
+            preset.scope === "global" || preset.projectId === projectId),
+          saveEffectPreset: async (input) => {
+            const saved = {
+              ...structuredClone(input),
+              createdAt: input.createdAt ?? new Date(0).toISOString(),
+              updatedAt: new Date(0).toISOString(),
+            };
+            const index = stored.findIndex((preset) => preset.id === saved.id);
+            if (index < 0) stored.push(saved);
+            else stored[index] = saved;
+            return saved;
+          },
+          deleteEffectPreset: async (id) => {
+            const index = stored.findIndex((preset) => preset.id === id);
+            if (index >= 0) stored.splice(index, 1);
+          },
+          importEffectPreset: async () => ({
+            format: "prism-effect-chain",
+            version: 1,
+            name: "Imported Chain",
+            effects: [
+              { id: "imported-eq", type: "equalizer", enabled: true, parameters: { frequency: 800, gain: 2, q: 1 } },
+              { id: "future-vst", type: "future-vst", enabled: true, parameters: { amount: 0.6 }, raw: {
+                id: "future-vst", type: "future-vst", enabled: true, parameters: { amount: 0.6 },
+                vendorState: { preset: "future room" }, note: "never execute this string",
+              } },
+            ],
+          }),
+          exportEffectPreset: async (file) => { exportedFile = structuredClone(file); return true; },
+        };
+        const container = document.createElement("div");
+        container.style.cssText = "position:fixed;left:-1500px;top:0;width:1100px;height:360px";
+        document.body.append(container);
+        function Harness() {
+          const [working, setWorking] = useState(session);
+          window.__effectsHarnessSession = working;
+          return createElement(EffectsPanel, {
+            session: working,
+            selectedTrackId: working.tracks[0].id,
+            onSelectTrack: () => {},
+            onUpdateTrackEffects: (id, effects) => setWorking((current) => ({
+              ...current,
+              tracks: current.tracks.map((track) => track.id === id ? { ...track, effects } : track),
+            })),
+            onUpdateMasterEffects: (masterEffects) => setWorking((current) => ({ ...current, masterEffects })),
+            onNotice: (message) => notices.push(message),
+          });
+        }
+        const root = createRoot(container);
+        const lookup = (selector) => {
+          const element = container.querySelector(selector);
+          assert(element, `Missing effect-workspace control: ${selector}`);
+          return element;
+        };
+        const click = async (selector) => { lookup(selector).click(); await wait(25); };
+        const setValue = async (selector, value, tag = "input") => {
+          const element = lookup(selector);
+          const prototype = tag === "select" ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+          Object.getOwnPropertyDescriptor(prototype, "value").set.call(element, value);
+          element.dispatchEvent(new Event(tag === "select" ? "change" : "input", { bubbles: true }));
+          await wait(25);
+        };
+        try {
+          root.render(createElement(Harness));
+          await wait(60);
+          assert(lookup('[data-testid="button-browse-add-equalizer"]'), "Native equalizer browser entry is missing.");
+          await setValue('[data-testid="input-effects-search"]', "vst");
+          assert(container.querySelector(".effect-browser-card.unavailable"), "Unavailable plug-in formats are not identified.");
+          assert(!container.querySelector('[data-testid="button-browse-add-equalizer"]'), "Search did not filter native effects.");
+          await setValue('[data-testid="input-effects-search"]', "");
+
+          await click('[data-testid="button-browse-add-equalizer"]');
+          await click('[data-testid="button-browse-add-delay"]');
+          let chain = window.__effectsHarnessSession.tracks[0].effects;
+          assert.equal(chain.length, 2);
+          await click('button[aria-label="Move Delay up"]');
+          chain = window.__effectsHarnessSession.tracks[0].effects;
+          assert.equal(chain[0].type, "delay", "Move controls did not change processing order.");
+          const equalizerIndex = chain.findIndex((effect) => effect.type === "equalizer");
+          const equalizerId = chain[equalizerIndex].id;
+          await setValue(`[data-testid="track-effect-${equalizerId}-gain"]`, "12");
+          assert.equal(window.__effectsHarnessSession.tracks[0].effects[equalizerIndex].parameters.gain, 12);
+          await click(`button[aria-label="Reset Equalizer"]`);
+          chain = window.__effectsHarnessSession.tracks[0].effects;
+          assert.equal(chain.find((effect) => effect.id === equalizerId).parameters.gain, 0, "Reset did not restore the shared default.");
+          await click(`[data-testid="track-effect-toggle-${equalizerId}"]`);
+          chain = window.__effectsHarnessSession.tracks[0].effects;
+          assert.equal(chain.find((effect) => effect.id === equalizerId).enabled, false, "Bypass did not update session state.");
+          await click(`button[aria-label="Duplicate Delay"]`);
+          chain = window.__effectsHarnessSession.tracks[0].effects;
+          assert.equal(chain.length, 3, "Duplicate did not create a chain entry.");
+          const duplicatedId = chain.find((effect) => effect.type === "delay" && effect.id !== chain[0].id).id;
+          await click(`[data-testid="effect-unit-${duplicatedId}"] button[title="Remove effect"]`);
+          assert.equal(window.__effectsHarnessSession.tracks[0].effects.length, 2, "Remove did not update the chain.");
+
+          await setValue('[data-testid="input-effect-preset-name"]', "Reusable Chain");
+          await click('[data-testid="button-save-effect-preset"]');
+          assert.equal(stored.length, 1, "Saving a chain did not persist the preset.");
+          const savedPreset = stored[0];
+          await click(`.effect-preset-card button[title="Rename preset"]`);
+          await setValue('input[aria-label="Rename Reusable Chain"]', "Renamed Chain");
+          await click('.effect-preset-card button[title="Save name"]');
+          assert.equal(stored[0].name, "Renamed Chain", "Rename did not update the preset.");
+          await click('.effect-preset-card button[title="Duplicate preset"]');
+          assert.equal(stored.length, 2, "Duplicate preset did not persist a copy.");
+
+          await click('[data-testid="button-import-effect-preset"]');
+          assert.equal(stored.length, 3, "Import did not save the validated preset.");
+          const imported = stored.find((preset) => preset.name === "Imported Chain");
+          assert.equal(imported.effects.find((effect) => effect.type === "future-vst").raw.vendorState.preset, "future room");
+          const importedCard = container.querySelector(`[data-testid="effect-preset-${imported.id}"]`);
+          assert(importedCard?.textContent.includes("unavailable"), "Unavailable effect was not identified in the preset list.");
+          importedCard.querySelector(`[data-testid="button-effect-preset-load-${imported.id}"]`).click();
+          await wait(25);
+          chain = window.__effectsHarnessSession.tracks[0].effects;
+          assert.equal(chain.length, 1, "Load did not apply available effects only.");
+          assert.equal(chain[0].type, "equalizer");
+          assert.equal(imported.effects.some((effect) => effect.type === "future-vst"), true,
+            "Loading dropped unavailable data from the stored preset.");
+          importedCard.querySelector(`[data-testid="button-effect-preset-append-${imported.id}"]`).click();
+          await wait(25);
+          assert.equal(window.__effectsHarnessSession.tracks[0].effects.length, 2, "Append did not preserve the active chain.");
+          importedCard.querySelector('button[title="Export preset JSON"]').click();
+          await wait(25);
+          assert.equal(exportedFile.effects.find((effect) => effect.type === "future-vst").raw.vendorState.preset, "future room",
+            "Export dropped unavailable effect data.");
+
+          await setValue('[data-testid="select-effect-preset-scope"]', "global", "select");
+          await setValue('[data-testid="input-effect-preset-name"]', "Global Chain");
+          await click('[data-testid="button-save-effect-preset"]');
+          assert.equal(stored.find((preset) => preset.name === "Global Chain").projectId, null,
+            "Global preset was incorrectly tied to one release.");
+          const globalCard = [...container.querySelectorAll(".effect-preset-card")]
+            .find((card) => card.textContent.includes("Global Chain"));
+          globalCard.querySelector('button[title="Delete preset"]').click();
+          await wait(25);
+          assert.equal(stored.some((preset) => preset.name === "Global Chain"), false,
+            "Delete did not remove the selected reusable preset.");
+          assert(notices.length > 0, "Preset operations did not report their results.");
+        } finally {
+          root.unmount();
+          container.remove();
+        }
+      };
+      let engine;
+      try {
+        await report({ progress: "rendering MIDI and checking the exported PCM samples" });
+        const session = {
+          id: "midi-render-test",
+          releaseId: "release-test",
+          title: "MIDI Render Test",
+          tempo: 120,
+          timeSignature: "4/4",
+          loopRange: null,
+          metronomeEnabled: false,
+          masterVolume: 1,
+          masterEffects: [],
+          updatedAt: new Date(0).toISOString(),
+          tracks: [{
+            id: "instrument-test",
+            name: "Test Synth",
+            type: "instrument",
+            color: "#7c9ef2",
+            volume: 0.8,
+            pan: 0,
+            muted: false,
+            solo: false,
+            recordArmed: false,
+            clips: [],
+            notes: [
+              { id: "note-a", pitch: 60, startBeat: 0, durationBeats: 1, velocity: 48 },
+              { id: "note-b", pitch: 69, startBeat: 1, durationBeats: 1, velocity: 116 },
+            ],
+            instrument: {
+              waveform: "triangle",
+              attack: 0.01,
+              decay: 0.12,
+              sustain: 0.62,
+              release: 0.18,
+            },
+            effects: [],
+          }],
+        };
+
+        const wav = await render(session);
+        const view = new DataView(wav.buffer, wav.byteOffset, wav.byteLength);
+        if (
+          view.getUint32(0, false) !== 0x52494646 ||
+          view.getUint32(8, false) !== 0x57415645 ||
+          view.getUint32(24, true) !== 48_000 ||
+          view.getUint16(22, true) !== 2 ||
+          view.getUint16(34, true) !== 16
+        ) {
+          throw new Error("The render did not produce a 48 kHz, 16-bit stereo WAV.");
+        }
+
+        let peak = 0;
+        for (let offset = 44; offset + 1 < wav.byteLength; offset += 2) {
+          peak = Math.max(peak, Math.abs(view.getInt16(offset, true)));
+        }
+        if (peak < 500) throw new Error(`The rendered MIDI output is silent (peak ${peak}).`);
+        const track = {
+          ...session.tracks[0],
+          volume: 1,
+          instrument: { ...session.tracks[0].instrument, waveform: "sine" },
+          notes: [{ id: "held", pitch: 69, startBeat: 0, durationBeats: 2, velocity: 100 }],
+        };
+        const single = { ...session, tracks: [track] };
+        const singleWav = await render(single);
+        const fullLevel = pcmRms(singleWav);
+        const singleView = new DataView(singleWav.buffer, singleWav.byteOffset, singleWav.byteLength);
+        let crossings = 0;
+        for (let frame = 4801; frame < 14400; frame++) {
+          if (singleView.getInt16(44 + (frame - 1) * 4, true) <= 0 &&
+              singleView.getInt16(44 + frame * 4, true) > 0) crossings++;
+        }
+        assert(Math.abs(crossings / 0.2 - 440) < 8, "The rendered note has the wrong pitch.");
+        assert(pcmRms(singleWav, 0.98, 1) < fullLevel * 0.15, "The note did not release at its saved duration.");
+        const delayed = await render({ ...single, tracks: [{
+          ...track, notes: [{ ...track.notes[0], startBeat: 1 }],
+        }] });
+        assert(pcmRms(delayed, 0, 0.45) === 0 && pcmRms(delayed, 0.6, 0.8) > 0.03,
+          "The saved MIDI onset timing was not respected.");
+        const quarterMaster = pcmRms(await render({ ...single, masterVolume: 0.25 }));
+        const quarterTrack = pcmRms(await render({ ...single, tracks: [{ ...track, volume: 0.25 }] }));
+        const halfVelocity = pcmRms(await render({
+          ...single, tracks: [{ ...track, notes: [{ ...track.notes[0], velocity: 50 }] }],
+        }));
+        assert(Math.abs(quarterMaster / fullLevel - 0.25) < 0.01, "The master level was not applied to WAV output.");
+        assert(Math.abs(quarterTrack / fullLevel - 0.25) < 0.01, "The track level was not applied to WAV output.");
+        assert(Math.abs(halfVelocity / fullLevel - 0.5) < 0.01, "Velocity did not scale the rendered performance.");
+        const muted = await render({ ...single, tracks: [{ ...track, muted: true }] });
+        assert(pcmRms(muted) === 0, "A muted instrument leaked into the export.");
+        const zeroTrack = await render({ ...single, tracks: [{ ...track, volume: 0 }] });
+        assert(pcmRms(zeroTrack, 0, 0.1) === 0, "A zero-level instrument leaked into the export.");
+
+        const eq = await render({ ...single, tracks: [{
+          ...track,
+          effects: [{ id: "eq", type: "equalizer", enabled: true, parameters: { frequency: 440, gain: -18, q: 1 } }],
+        }] });
+        assert(pcmRms(eq) < fullLevel * 0.3, "Track processing did not affect the instrument export.");
+        const bypassedEq = await render({ ...single, tracks: [{
+          ...track,
+          effects: [{ id: "eq-bypass", type: "equalizer", enabled: false, parameters: { frequency: 440, gain: -18, q: 1 } }],
+        }] });
+        assert(Math.abs(pcmRms(bypassedEq) / fullLevel - 1) < 0.03, "Bypassing an effect did not restore the dry signal.");
+        const eqUnit = { id: "order-eq", type: "equalizer", enabled: true, parameters: { frequency: 440, gain: 18, q: 1 } };
+        const compressorUnit = { id: "order-comp", type: "compressor", enabled: true, parameters: { threshold: -30, ratio: 20, attack: 0.001, release: 0.01, knee: 0 } };
+        const eqThenCompressor = pcmRms(await render({ ...single, tracks: [{
+          ...track, effects: [eqUnit, compressorUnit],
+        }] }));
+        const compressorThenEq = pcmRms(await render({ ...single, tracks: [{
+          ...track, effects: [compressorUnit, eqUnit],
+        }] }));
+        assert(Math.abs(eqThenCompressor - compressorThenEq) > fullLevel * 0.08,
+          `Reordering the chain did not change the processed signal (${eqThenCompressor.toFixed(3)} vs ${compressorThenEq.toFixed(3)}).`);
+        const chord = await render({ ...single, tracks: [{
+          ...track,
+          notes: [60, 64, 69].map((pitch, index) => ({ ...track.notes[0], id: `chord-${index}`, pitch, velocity: 40 })),
+        }] });
+        const quietSingle = await render({ ...single, tracks: [{
+          ...track, notes: [{ ...track.notes[0], velocity: 40 }],
+        }] });
+        assert(pcmRms(chord) > pcmRms(quietSingle) * 1.4, "Polyphonic notes did not render together.");
+        const bufferContext = new OfflineAudioContext(1, 12000, 48000);
+        const audioBuffer = bufferContext.createBuffer(1, 12000, 48000);
+        const samples = audioBuffer.getChannelData(0);
+        for (let i = 0; i < samples.length; i++) samples[i] = Math.sin(2 * Math.PI * 220 * i / 48000) * 0.2;
+        const audioWav = await renderSessionWav({ ...single, tracks: [{
+          ...track, type: "audio", instrument: null, notes: [],
+          clips: [{
+            id: "audio-clip", assetId: "audio-asset", name: "Audio regression",
+            startSeconds: 0, durationSeconds: 0.25, sourceStartSeconds: 0,
+            sourceDurationSeconds: 0.25, gain: 1, fadeInSeconds: 0, fadeOutSeconds: 0, waveform: [],
+          }],
+        }] }, async () => audioBuffer);
+        assert(pcmRms(audioWav, 0.05, 0.15) > 0.03, "Existing audio-clip rendering became silent.");
+        await report({ progress: "testing the effect browser, editable chains, and preset library UI" });
+        await testEffectsWorkspace(session);
+
+        // Real Web Audio graph checks use Chromium's silent sink, clock and meters.
+        // They do not claim sound was heard through a physical Windows device.
+        await report({ progress: "checking live MIDI playback and transport cleanup" });
+        engine = new AudioEngine(() => { throw new Error("Unexpected audio asset request."); });
+        const liveTrack = { ...track, notes: [{ ...track.notes[0], durationBeats: 8 }], muted: true };
+        const live = { ...single, tracks: [liveTrack] };
+        const cancelled = engine.start(live);
+        engine.stop(true);
+        await cancelled;
+        assert(engine.snapshot().status === "stopped", "Pending Play restarted after Stop.");
+        // This container has no physical output device. Chromium's silent sink
+        // renders the actual graph without depending on a host audio callback.
+        await engine.context.setSinkId({ type: "none" });
+
+        await engine.start(live);
+        await wait(300);
+        assert(engine.snapshot().meters[track.id].peak < 0.005, "Muted live instrument was audible.");
+        const unmuted = { ...live, tracks: [{ ...liveTrack, muted: false }] };
+        engine.updateSession(unmuted);
+        await wait(160);
+        assert(engine.snapshot().meters[track.id].peak > 0.03,
+          `Unmuting a held note stayed silent: ${JSON.stringify(engine.snapshot())}; context=${engine.context.state}/${engine.context.currentTime}; sources=${engine.sources.size}`);
+        assert(engine.snapshot().meters.master.peak > 0.03, "The instrument did not reach the master meter.");
+        const soloTrack = { ...track, id: "empty-solo", type: "audio", instrument: null, notes: [], solo: true };
+        const soloSession = { ...unmuted, tracks: [...unmuted.tracks, soloTrack] };
+        engine.updateSession(soloSession);
+        await wait(250);
+        assert(engine.snapshot().meters[track.id].peak < 0.005, "Solo did not gate the other instrument.");
+        engine.updateSession({ ...soloSession, tracks: [...unmuted.tracks, { ...soloTrack, solo: false }] });
+        await wait(160);
+        assert(engine.snapshot().meters[track.id].peak > 0.03, "Unsoloing lost the held note.");
+
+        const otherTrack = {
+          ...track,
+          id: "independent-instrument",
+          name: "Independent Instrument",
+          notes: [{ ...track.notes[0], id: "other-held" }],
+        };
+        const twoTracks = { ...unmuted, tracks: [...unmuted.tracks, otherTrack] };
+        await engine.start(twoTracks, 0);
+        await wait(260);
+        const meterBeforeEdit = engine.snapshot().meters;
+        const sourcesBeforeEdit = [...engine.sources];
+        const eqOnFirst = {
+          id: "live-eq",
+          type: "equalizer",
+          enabled: true,
+          parameters: { frequency: 440, gain: -18, q: 1 },
+        };
+        const editedFirst = { ...twoTracks.tracks[0], effects: [eqOnFirst] };
+        engine.updateSession({ ...twoTracks, tracks: [editedFirst, otherTrack] });
+        await wait(180);
+        const meterAfterEdit = engine.snapshot().meters;
+        assert(meterAfterEdit[track.id].rms < meterBeforeEdit[track.id].rms * 0.45,
+          "Editing one track's equalizer did not change its processed level.");
+        assert(Math.abs(meterAfterEdit[otherTrack.id].rms / meterBeforeEdit[otherTrack.id].rms - 1) < 0.2,
+          "Changing one track's effect leaked into the independent track.");
+        assert(sourcesBeforeEdit.every((source) => engine.sources.has(source)),
+          "An effect edit unnecessarily restarted active note voices.");
+        const reorderedChain = [
+          { id: "live-delay", type: "delay", enabled: true, parameters: { time: 0.01, feedback: 0.1, mix: 0.2 } },
+          eqOnFirst,
+        ];
+        engine.updateSession({ ...twoTracks, tracks: [{ ...editedFirst, effects: reorderedChain }, otherTrack] });
+        await wait(150);
+        assert(sourcesBeforeEdit.every((source) => engine.sources.has(source)),
+          "Reordering the effect chain restarted active note voices.");
+        assert(engine.snapshot().meters.master.peak > 0.02,
+          "Reordering the chain caused an audible playback dropout.");
+        engine.updateSession(twoTracks);
+
+        engine.seek(1);
+        await wait(250);
+        assert(engine.snapshot().position >= 1, "Seek did not restore the requested timeline position.");
+        assert(engine.snapshot().meters.master.peak > 0.03, "Seek lost an overlapping MIDI note.");
+        engine.pause();
+        assert(engine.snapshot().status === "stopped", "Pause left the transport running.");
+        const looped = { ...unmuted, loopRange: { enabled: true, startSeconds: 0.1, endSeconds: 0.4 } };
+        await engine.start(looped, 0.1);
+        await wait(800);
+        const loopPosition = engine.snapshot().position;
+        assert(loopPosition >= 0.1 && loopPosition <= 0.4, "Loop playback left its bounds.");
+        engine.stop(true);
+        await wait(100);
+        assert(engine.snapshot().meters.master.peak < 0.005, "Stop left an instrument voice sounding.");
+        assert(engine.snapshot().position === 0, "Return to start did not reset position.");
+        const pendingDispose = engine.start(live).catch(() => undefined);
+        await engine.dispose();
+        await pendingDispose;
+        assert(engine.snapshot().status === "stopped", "Closing a project restarted its audio.");
+        engine = null;
+
+        result.textContent = `PASS: MIDI/audio rendering, effects browser and chains, preset CRUD/import/export, order/bypass/isolation, live edits, transport and disposal; WAV peak ${peak}.`;
+        document.body.dataset.testResult = "pass";
+      } catch (error) {
+        result.textContent = `FAIL: ${error instanceof Error ? error.message : String(error)}`;
+        document.body.dataset.testResult = "fail";
+      } finally {
+        await engine?.dispose();
+        await report({ result: result.textContent });
+      }
+    </script>
+  </body>
+</html>

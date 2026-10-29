@@ -36,6 +36,13 @@ jobs:
       - name: Run PRISM audio and persistence tests
         run: pnpm --filter @workspace/prism-desktop run test
 
+      - name: Check audio rendering, effects, and transport
+        shell: pwsh
+        run: |
+          $env:CHROMIUM_PATH = Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"
+          if (!(Test-Path $env:CHROMIUM_PATH)) { throw "Chrome is required for the Web Audio checks." }
+          pnpm --filter @workspace/prism-desktop run test:audio-render
+
       - name: Build Windows installer
         run: pnpm --filter @workspace/prism-desktop run package:win
 

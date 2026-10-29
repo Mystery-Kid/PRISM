@@ -27,6 +27,11 @@ async function makeLibrary(root: string, title: string, media: string) {
       songIds: [],
     }],
     sessions: [],
+    effectPresets: [{
+      id: "backup-preset", name: "Preserved chain", version: 1, scope: "global",
+      projectId: null, effects: [],
+      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+    }],
     assets: [{
       id: randomUUID(),
       fileName: `${title}.wav`,
@@ -71,6 +76,7 @@ test("restore replaces the library and media after creating a safety backup", as
     const restored = await restoreLibraryBackup(backup, current.dataDirectory);
 
     assert.equal(restored.releases[0].title, "Restored Song");
+    assert.deepEqual(restored.effectPresets, backupSource.library.effectPresets);
     assert.equal(
       await readFile(join(current.dataDirectory, "assets", backupSource.storageName), "utf8"),
       "restored audio",

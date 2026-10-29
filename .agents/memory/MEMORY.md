@@ -1,0 +1,1 @@
+- [Desktop audio verification](desktop-audio-verification.md) — a running Chromium context may have a stalled clock without a host audio device; separate silent-sink tests from hardware claims.

@@ -11,12 +11,12 @@ files, managed media, and persistence through the restricted preload bridge.
 
 ## Why this boundary
 
-The current workstation creates `AudioContext`, schedules sources, and tracks
-the playhead inside a React component. Web Audio's scheduled source nodes can
-play independently of React once scheduled, but the component currently owns
-all scheduling and has no capture, loop scheduler, or audio processing
-boundary. That coupling is not a safe foundation for recording and synchronized
-editing.
+The workstation delegates scheduling, the playback clock, and node lifetime to
+an audio service instead of React. Scheduled source nodes keep playing
+independently of React renders. Live instrument voices and WAV export share
+the same pitch and velocity-scaled envelope calculation, including partial-note
+resumption and release. Track processing, pan, track level, and master
+processing/level sit after instrument generation.
 
 Electron embeds Chromium, so Web Audio and AudioWorklet provide a practical
 cross-platform first engine without adding native modules that must be compiled
@@ -60,3 +60,13 @@ overdubbing as verified until it passes a real Windows-device test.
 - The Web Audio renderer is the initial implementation boundary, not a claim
   that a browser timer is a DAW-grade audio engine. Installed Windows tests
   remain necessary before claiming device, latency, or recovery behavior.
+
+## MIDI verification
+
+See [MIDI_VERIFICATION.md](./MIDI_VERIFICATION.md) for the automated checks,
+signal-path audit, and the separate physical Windows-device acceptance checklist.
+
+## Effects verification
+
+See [EFFECTS.md](./EFFECTS.md) for the native processor audit, chain behavior,
+parameter limits, versioned presets, and unavailable plug-in formats.
