@@ -1,0 +1,142 @@
+.drum-panel { --instrument-accent: #c6a879; --instrument-accent-ink: #251f15; --instrument-bg: #18191b; }
+.drum-panel .instrument-heading-mark { color: #c6a879; border-color: #a4895c3e; background: #c6a8790c; }
+.drum-panel .instrument-status.status-ready { color: #c3b08c; }
+.drum-panel .drum-count { margin-left: 6px; color: #848b8c; font-family: "Space Mono", monospace; font-size: 8px; font-weight: 400; letter-spacing: .02em; }
+.drum-panel .instrument-button-primary { color: var(--instrument-accent-ink); border-color: #c6a879; background: #c6a879; }
+.drum-panel .instrument-button-primary:hover:not(:disabled) { background: #d5bb91; }
+.drum-add-button { margin-left: auto; }
+.drum-pattern-button { margin-left: 0; }
+.drum-pattern-button > span { color: #92866e; font-size: 11px; }
+.drum-pad-list { max-height: 145px; overflow: auto; padding: 0 14px 9px; scrollbar-color: #454545 transparent; }
+.drum-pad-row {
+  min-height: 66px;
+  display: grid;
+  grid-template-columns: minmax(150px, .8fr) minmax(270px, 1.55fr) minmax(100px, .65fr) minmax(126px, auto);
+  align-items: center;
+  gap: 13px;
+  padding: 8px 3px;
+  border-bottom: 1px solid #292d30;
+  animation: drum-row-enter .16s ease both;
+}
+.drum-pad-row:last-child { border-bottom: 0; }
+.drum-pad-identity { min-width: 0; display: grid; grid-template-columns: 22px minmax(70px, 1fr) 59px; align-items: center; gap: 7px; }
+.drum-pad-index { color: #967f5b; font-family: "Space Mono", monospace; font-size: 8px; }
+.drum-pad-name-field, .drum-pad-note-field, .drum-gain-field { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.drum-pad-name-field input, .drum-pad-note-field input {
+  width: 100%;
+  min-width: 0;
+  height: 25px;
+  padding: 0 7px;
+  color: #dcdfdc;
+  border: 1px solid #353b3d;
+  border-radius: 3px;
+  outline: none;
+  background: #121416;
+  font: inherit;
+  font-size: 9px;
+}
+.drum-pad-name-field input:focus, .drum-pad-note-field input:focus { border-color: #a88e62; }
+.drum-pad-note-field input { padding-right: 3px; font-family: "Space Mono", monospace; font-variant-numeric: tabular-nums; }
+.drum-pad-source { min-width: 0; }
+.drum-source-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+.drum-source-status { font-family: "Space Mono", monospace; font-size: 7px; letter-spacing: .055em; white-space: nowrap; }
+.drum-source-status.assigned { color: #9ab5a8; }
+.drum-source-status.unassigned { color: #81898a; }
+.drum-source-status.missing { color: #d1a073; }
+.drum-note-warning { margin: 5px 14px 0; color: #ffbf77; font: 9px "Space Mono", monospace; }
+.drum-pattern-editor { margin: 7px 14px 9px; overflow: hidden; border: 1px solid #30343a; border-radius: 7px; background: #111316; }
+.drum-pattern-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 7px; padding: 8px 9px 6px; }
+.drum-pattern-toolbar label { display: grid; gap: 3px; }
+.drum-pattern-heading { display: grid; gap: 4px; margin-right: auto; }
+.drum-pattern-heading small, .drum-pattern-summary { color: #8d9694; font: 8px "Space Mono", monospace; }
+.drum-pattern-toolbar select, .drum-pattern-toolbar input { min-height: 25px; border: 1px solid #34383d; border-radius: 4px; background: #181a1e; color: #d8d9d5; padding: 0 6px; font: 9px "Space Mono", monospace; }
+.drum-pattern-toolbar input { width: 62px; }
+.drum-pattern-toolbar .instrument-button { min-height: 25px; padding: 0 8px; font-size: 8px; }
+.drum-pattern-toolbar .instrument-button:disabled { opacity: .4; cursor: not-allowed; }
+.drum-pattern-summary { padding: 5px 10px; border-top: 1px solid #262a2e; }
+.drum-pad-list.drum-sequencer-list { display: block; max-height: 145px; overflow: auto; padding: 0; }
+.drum-step-row { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 9px; border-top: 1px solid #23272b; }
+.drum-step-row-name { flex: 0 0 84px; overflow: hidden; color: #b9c0bd; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.drum-step-scroll { min-width: 0; flex: 1; overflow-x: auto; scrollbar-width: thin; }
+.drum-step-grid { display: grid; gap: 3px; width: max-content; }
+.drum-step-cell { position: relative; width: 22px; height: 22px; border: 1px solid #343a3d; border-radius: 4px; background: #1b1e21; color: #858e8c; font: 7px "Space Mono", monospace; cursor: pointer; }
+.drum-step-cell.bar-start { border-left-color: #707a76; }
+.drum-step-cell.active { border-color: #91b3a4; background: #527264; color: #f2f5ef; }
+.drum-step-cell:hover { border-color: #c3d5cb; }
+.drum-step-cell:focus-visible { outline: 2px solid #d2e0d8; outline-offset: 1px; }
+.drum-source-controls { display: flex; align-items: center; gap: 5px; }
+.drum-sample-label { min-width: 72px; display: flex; flex: 1; align-items: center; gap: 6px; overflow: hidden; color: #a7b0ae; }
+.drum-sample-label svg { flex: 0 0 auto; color: #8d9d98; }
+.drum-sample-label span { overflow: hidden; color: #c2c8c6; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.drum-pad-unassigned .drum-sample-label span { color: #858d8e; font-style: italic; }
+.drum-pad-missing .drum-sample-label span, .drum-pad-missing .drum-sample-label svg { color: #d0a27a; }
+.drum-asset-select-wrap { width: 25px; height: 25px; display: block; flex: 0 0 auto; overflow: hidden; border: 1px solid #353b3d; border-radius: 3px; background: #121416; }
+.drum-asset-select-wrap select { width: 100%; height: 100%; padding: 0; color: transparent; border: 0; outline: 0; background: transparent; cursor: pointer; }
+.drum-asset-select-wrap select:focus { outline: 1px solid #a88e62; outline-offset: -2px; }
+.drum-asset-select-wrap option { color: #e5e8e8; background: #191b1d; }
+.drum-assign-button, .drum-clear-button, .drum-trigger-button {
+  height: 25px;
+  min-width: 25px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 6px;
+  color: #adb6b3;
+  border: 1px solid #3a4041;
+  border-radius: 3px;
+  background: #202325;
+  cursor: pointer;
+  font: inherit;
+  font-size: 8px;
+  white-space: nowrap;
+}
+.drum-assign-button:hover, .drum-clear-button:hover { color: #e0e5e2; border-color: #5b6362; background: #292d2e; }
+.drum-clear-button { width: 25px; padding: 0; color: #9b7774; border-color: #3c3232; background: #211d1e; }
+.drum-clear-button:hover { color: #e0a29a; border-color: #684342; background: #302121; }
+.drum-unassigned-note, .drum-missing-note { display: block; margin-top: 4px; overflow: hidden; color: #848c8d; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.drum-missing-note { color: #c59a72; }
+.drum-gain-field .control-caption { color: #788082; }
+.drum-gain-field output { color: #c4c9c6; font-family: "Space Mono", monospace; font-size: 8px; font-weight: 400; }
+.drum-gain-field input { width: 100%; height: 12px; margin: 0; accent-color: #c6a879; cursor: pointer; }
+.drum-gain-field .range-ends { display: flex; justify-content: space-between; margin-top: -3px; color: #727b7c; font-family: "Space Mono", monospace; font-size: 7px; }
+.drum-pad-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.drum-trigger-button { width: 27px; height: 27px; color: #171b19; border-color: #9ab4a6; border-radius: 50%; background: #9ab4a6; }
+.drum-trigger-button:hover:not(:disabled) { background: #b1c9bb; }
+.drum-trigger-button:disabled { opacity: .35; cursor: not-allowed; }
+.drum-hit-button { height: 27px; }
+.drum-remove-button { height: 27px; width: 27px; }
+.drum-empty-state { min-height: 132px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; }
+.drum-empty-mark { width: 34px; height: 34px; display: grid; place-items: center; margin-bottom: 2px; color: #b69b6d; border: 1px solid #a4895c3e; border-radius: 8px; background: #c6a8790c; }
+.drum-empty-state strong { color: #dfe2df; font-size: 10px; font-weight: 600; }
+.drum-empty-state > span { color: #878f90; font-size: 9px; }
+.drum-empty-state .instrument-button { margin-top: 4px; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@keyframes drum-row-enter { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 760px) {
+  .drum-pad-list { max-height: none; }
+  .drum-pad-row { grid-template-columns: minmax(140px, .8fr) minmax(0, 1.3fr); gap: 9px 12px; }
+  .drum-gain-field { grid-column: 1; }
+  .drum-pad-actions { grid-column: 2; }
+}
+@media (max-width: 520px) {
+  .drum-panel .instrument-panel-heading { gap: 7px; padding: 0 10px; }
+  .drum-panel .instrument-heading-mark { display: none; }
+  .drum-pattern-button { display: none; }
+  .drum-pad-list { padding-right: 9px; padding-left: 9px; }
+  .drum-pad-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+  .drum-pad-identity { grid-column: 1 / -1; }
+  .drum-pad-source { grid-column: 1 / -1; }
+  .drum-gain-field { grid-column: 1; }
+  .drum-pad-actions { grid-column: 2; }
+}

@@ -9,10 +9,13 @@
     <script type="module">
       import { renderSessionWav } from "./render.ts";
       import { AudioEngine } from "./AudioEngine.ts";
+      import { encodeAudioBufferWav } from "./wav.ts";
       import { createElement, useState } from "react";
       import { createRoot } from "react-dom/client";
       import { EffectsPanel } from "../components/EffectsPanel.tsx";
       import { RoutingPanel } from "../components/RoutingPanel.tsx";
+      import { SamplerPanel } from "../components/SamplerPanel.tsx";
+      import { DrumPanel } from "../components/DrumPanel.tsx";
       import { getAllowedBusTargets } from "../../shared/audio-routing.ts";
 
       const result = document.getElementById("result");
@@ -23,6 +26,9 @@
       const assert = (condition, message) => { if (!condition) throw new Error(message); };
       assert.equal = (actual, expected, message = "") =>
         assert(Object.is(actual, expected), message || `Expected ${String(actual)} to equal ${String(expected)}.`);
+      assert.deepEqual = (actual, expected, message = "") =>
+        assert(JSON.stringify(actual) === JSON.stringify(expected),
+          message || `Expected ${JSON.stringify(actual)} to equal ${JSON.stringify(expected)}.`);
       const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const pcmRms = (bytes, fromSeconds = 0.1, toSeconds = 0.3) => {
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -302,7 +308,125 @@
           window.prompt = originalPrompt;
         }
       };
+      const testInstrumentPanels = async () => {
+        const assets = [
+          { id: "sample-ui", fileName: "sample.wav", mimeType: "audio/wav" },
+          { id: "sample-ui-2", fileName: "snare.wav", mimeType: "audio/wav" },
+        ];
+        const container = document.createElement("div");
+        container.style.cssText = "position:fixed;left:-1500px;top:0;width:1200px;height:420px";
+        document.body.append(container);
+        let activeRoot = null;
+        try {
+          let sampler = { sampleAssetId: null, rootNote: 60, gain: 1 };
+          const samplerActions = { import: 0, preview: 0, add: 0, pattern: 0 };
+          const samplerRoot = createRoot(container);
+          activeRoot = samplerRoot;
+          const renderSampler = () => samplerRoot.render(createElement(SamplerPanel, {
+            sampler, assets, assetsLoading: false, missingSampleIds: [], recoveryMessage: "",
+            onChange: (next) => { sampler = next; renderSampler(); },
+            onImportSample: () => samplerActions.import++,
+            onPreview: () => samplerActions.preview++,
+            onAddNote: () => samplerActions.add++,
+            onOpenPattern: () => samplerActions.pattern++,
+          }));
+          const setValue = async (selector, value, tag = "input") => {
+            const field = container.querySelector(selector);
+            assert(field, `Missing instrument-panel control: ${selector}`);
+            const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")?.set;
+            if (setter) setter.call(field, String(value));
+            else field.value = String(value);
+            field.dispatchEvent(new Event(tag === "select" ? "change" : "input", { bubbles: true }));
+            await wait(25);
+          };
+          const click = async (selector) => {
+            const button = container.querySelector(selector);
+            assert(button, `Missing instrument-panel action: ${selector}`);
+            button.click();
+            await wait(25);
+          };
+          renderSampler();
+          await wait(30);
+          await setValue('[data-testid="select-sampler-sample"]', "sample-ui", "select");
+          await setValue('[data-testid="input-sampler-root-note"]', 64);
+          await setValue('[data-testid="input-sampler-gain"]', 0.75);
+          assert.equal(sampler.sampleAssetId, "sample-ui", "Sampler sample selection did not update the assignment.");
+          assert.equal(sampler.rootNote, 64, "Sampler root note did not update.");
+          assert.equal(sampler.gain, 0.75, "Sampler gain did not update.");
+          await click('[data-testid="button-sampler-import"]');
+          await click('[data-testid="button-sampler-preview"]');
+          await click('[data-testid="button-sampler-add-note"]');
+          await click('[data-testid="button-sampler-open-pattern"]');
+          assert.deepEqual(samplerActions, { import: 1, preview: 1, add: 1, pattern: 1 });
+          samplerRoot.unmount();
+          activeRoot = null;
+
+          let drumKit = { pads: [
+            { id: "kick-ui", name: "Kick", note: 36, sampleAssetId: "sample-ui", gain: 1 },
+            { id: "snare-ui", name: "Snare", note: 38, sampleAssetId: "sample-ui-2", gain: 1 },
+          ] };
+          let drumNotes = [];
+          let drumTimeSignature = "4/4";
+          let hits = 0;
+          let previews = 0;
+          const drumRoot = createRoot(container);
+          activeRoot = drumRoot;
+          const renderDrums = () => drumRoot.render(createElement(DrumPanel, {
+            drumKit, notes: drumNotes, assets, assetsLoading: false, missingSampleIds: [], recoveryMessage: "",
+            tempo: 120, timeSignature: drumTimeSignature,
+            onChange: (next) => { drumKit = next; renderDrums(); },
+            onNotesChange: (next) => { drumNotes = next; renderDrums(); },
+            onImportSample: () => {},
+            onPreviewPad: () => previews++,
+            onAddHit: () => hits++,
+            onOpenPattern: () => {},
+          }));
+          renderDrums();
+          await wait(30);
+          await setValue('[data-testid="input-drum-pad-note-kick-ui"]', 38);
+          assert.equal(drumKit.pads[0].note, 36, "Duplicate pad MIDI notes were accepted.");
+          assert(container.querySelector('[data-testid="status-drum-duplicate-note"]'), "Duplicate MIDI assignment was not reported.");
+          await click('[data-testid="button-drum-add-pad"]');
+          assert.equal(drumKit.pads.length, 3, "Adding a drum pad did not update the kit.");
+          assert.equal(new Set(drumKit.pads.map((pad) => pad.note)).size, 3, "New drum pad reused an existing MIDI note.");
+          await click('[data-testid="button-drum-step-kick-ui-1"]');
+          assert.equal(drumNotes.length, 1, "Step toggles did not create MIDI notes.");
+          assert.equal(drumNotes[0].startBeat, 0, "A first-bar step was not placed at the right musical time.");
+          await click('[data-testid="button-drum-pattern-duplicate"]');
+          assert.equal(drumNotes.length, 2, "Pattern duplication did not copy MIDI hits.");
+          assert.equal(drumNotes[1].startBeat, 4, "Pattern duplication did not place the next bar.");
+          assert.equal(drumKit.patternStartBeat, 4, "Pattern editor did not advance to the duplicated bar.");
+          await click('[data-testid="button-drum-pattern-clear"]');
+          assert.equal(drumNotes.length, 1, "Clearing the selected pattern removed notes from the original pattern.");
+          await setValue('[data-testid="select-drum-pattern-length"]', 2, "select");
+          assert.equal(drumKit.patternLengthBars, 2, "Pattern length did not update.");
+          await setValue('[data-testid="input-drum-pattern-start-bar"]', 3);
+          assert.equal(drumKit.patternStartBeat, 8, "Pattern placement did not map bar three to beat eight.");
+          await click('[data-testid="button-drum-pad-preview-kick-ui"]');
+          await click('[data-testid="button-drum-pad-add-hit-kick-ui"]');
+          assert.equal(previews, 1);
+          assert.equal(hits, 1);
+          drumTimeSignature = "6/8";
+          drumKit = { ...drumKit, patternStartBeat: 0, patternLengthBars: 1 };
+          drumNotes = [];
+          renderDrums();
+          await wait(30);
+          assert(container.querySelector('[data-testid="text-drum-tempo"]').textContent.includes("12 steps"),
+            "A 6/8 drum bar did not use twelve sixteenth-note steps.");
+          await click('[data-testid="button-drum-step-kick-ui-2"]');
+          assert.equal(drumNotes[0].startBeat, 0.5, "A 6/8 step did not use the session's eighth-note beat basis.");
+          await click('[data-testid="button-drum-pattern-duplicate"]');
+          assert.equal(drumNotes[1].startBeat, 6.5, "Duplicating a 6/8 pattern used the wrong bar length.");
+          await setValue('[data-testid="input-drum-pattern-start-bar"]', 3);
+          assert.equal(drumKit.patternStartBeat, 12, "A 6/8 pattern start did not align with bar three.");
+        } finally {
+          activeRoot?.unmount();
+          container.remove();
+        }
+      };
       let engine;
+      let sampleEngine;
+      let missingEngine;
       try {
         await report({ progress: "rendering MIDI and checking the exported PCM samples" });
         const session = {
@@ -515,6 +639,91 @@
           }],
         }] }, async () => audioBuffer);
         assert(pcmRms(audioWav, 0.05, 0.15) > 0.03, "Existing audio-clip rendering became silent.");
+        const sampleBufferContext = new OfflineAudioContext(1, 24_000, 48_000);
+        const sampleBuffer = sampleBufferContext.createBuffer(1, 24_000, 48_000);
+        const sampleData = sampleBuffer.getChannelData(0);
+        for (let i = 0; i < sampleData.length; i++) {
+          sampleData[i] = Math.sin(2 * Math.PI * 220 * i / 48_000) * 0.22;
+        }
+        const samplerTrack = {
+          ...track,
+          id: "sampler-render",
+          name: "Sampler render",
+          type: "sampler",
+          volume: 1,
+          instrument: null,
+          sampler: { sampleAssetId: "sample-asset", rootNote: 60, gain: 0.7 },
+          drumKit: null,
+          notes: [{ id: "sample-pitch", pitch: 72, startBeat: 0.5, durationBeats: 0.25, velocity: 127 }],
+        };
+        const sampleSession = { ...single, tracks: [samplerTrack] };
+        const renderSample = (value) => renderSessionWav(value, async (assetId) => {
+          assert.equal(assetId, "sample-asset", "The sample renderer requested an unexpected asset.");
+          return sampleBuffer;
+        });
+        const sampleWav = await renderSample(sampleSession);
+        const sampleDuration = (sampleWav.byteLength - 44) / (48_000 * 4);
+        assert(Math.abs(sampleDuration - 0.5) < 0.001, "The sampler export clipped or extended the one-shot tail.");
+        assert(pcmRms(sampleWav, 0.05, 0.2) === 0, "The sampler ignored the saved note onset.");
+        assert(pcmRms(sampleWav, 0.3, 0.45) > 0.03, "The sampler did not render its assigned sample.");
+        const sampleView = new DataView(sampleWav.buffer, sampleWav.byteOffset, sampleWav.byteLength);
+        let sampleCrossings = 0;
+        for (let frame = 14_401; frame < 19_200; frame++) {
+          if (sampleView.getInt16(44 + (frame - 1) * 4, true) <= 0 &&
+              sampleView.getInt16(44 + frame * 4, true) > 0) sampleCrossings++;
+        }
+        assert(Math.abs(sampleCrossings / 0.1 - 440) < 10, "Sampler root-note transposition did not affect playback pitch.");
+        const drumTrack = {
+          ...samplerTrack,
+          id: "drum-render",
+          name: "Drum render",
+          type: "drum",
+          sampler: null,
+          drumKit: {
+            patternLengthBars: 1,
+            patternStartBeat: 0,
+            pads: [{ id: "kick-pad", name: "Kick", note: 36, sampleAssetId: "sample-asset", gain: 0.5 }],
+          },
+          notes: [{ id: "kick-hit", pitch: 36, startBeat: 0, durationBeats: 0.25, velocity: 127 }],
+        };
+        const drumSession = { ...single, tracks: [drumTrack] };
+        const drumWav = await renderSample(drumSession);
+        assert(pcmRms(drumWav, 0.05, 0.2) > 0.03, "The drum pad did not render its assigned sample.");
+        const mutedSample = await renderSample({
+          ...sampleSession,
+          tracks: [{ ...samplerTrack, muted: true }],
+        });
+        assert(pcmRms(mutedSample) === 0, "A muted sampler leaked into the export.");
+        const sampleBus = { ...renderBus, id: "sample-bus", name: "Sample Bus" };
+        const routedSample = await renderSample({
+          ...sampleSession,
+          buses: [sampleBus],
+          tracks: [{ ...samplerTrack, outputBusId: sampleBus.id }],
+        });
+        assert(Math.abs(pcmRms(routedSample, 0.3, 0.45) / pcmRms(sampleWav, 0.3, 0.45) - 1) < 0.02,
+          "Sampler audio did not pass through the track output routing.");
+        let missingSampleMessage = "";
+        try {
+          await renderSessionWav(sampleSession, async () => { throw new Error("file missing"); });
+        } catch (error) {
+          missingSampleMessage = error instanceof Error ? error.message : String(error);
+        }
+        assert(/sample is missing or unsupported/i.test(missingSampleMessage),
+          "A missing sample did not produce a recovery error during export.");
+        assert.equal(sampleSession.tracks[0].notes[0].id, "sample-pitch",
+          "A missing sample changed or discarded the saved MIDI pattern.");
+        let unassignedSampleMessage = "";
+        try {
+          await renderSessionWav({
+            ...sampleSession,
+            tracks: [{ ...samplerTrack, sampler: { ...samplerTrack.sampler, sampleAssetId: null } }],
+          }, async () => sampleBuffer);
+        } catch (error) {
+          unassignedSampleMessage = error instanceof Error ? error.message : String(error);
+        }
+        assert(/no assigned sample/i.test(unassignedSampleMessage),
+          "An unassigned sample note was silently omitted from the export.");
+        await testInstrumentPanels();
         await report({ progress: "testing the effect browser, editable chains, and preset library UI" });
         await testEffectsWorkspace(session);
         await testRoutingWorkspace(session);
@@ -555,7 +764,7 @@
           ...track,
           id: "independent-instrument",
           name: "Independent Instrument",
-          notes: [{ ...track.notes[0], id: "other-held" }],
+          notes: [{ ...track.notes[0], id: "other-held", durationBeats: 8 }],
         };
         const twoTracks = { ...unmuted, tracks: [...unmuted.tracks, otherTrack] };
         await engine.start(twoTracks, 0);
@@ -660,13 +869,76 @@
         assert(engine.snapshot().status === "stopped", "Closing a project restarted its audio.");
         engine = null;
 
-        result.textContent = `PASS: MIDI/audio rendering, bus routing and effects, pre/post sends, cycle-safe routing UI, preset CRUD, live bus meters/solo, transport and disposal; WAV peak ${peak}.`;
+        await report({ progress: "checking live sampler playback, track metering, and preview routing" });
+        const sampleBytes = encodeAudioBufferWav(sampleBuffer);
+        const sampleUrl = URL.createObjectURL(new Blob([sampleBytes], { type: "audio/wav" }));
+        try {
+          sampleEngine = new AudioEngine((assetId) => {
+            if (assetId !== "sample-asset") throw new Error(`Unexpected sample asset ${assetId}`);
+            return sampleUrl;
+          });
+          const liveSampleTrack = {
+            ...samplerTrack,
+            muted: true,
+            notes: [{ id: "live-sample-note", pitch: 60, startBeat: 0, durationBeats: 8, velocity: 127 }],
+          };
+          const liveSampleSession = { ...sampleSession, tracks: [liveSampleTrack] };
+          const cancelledSampleStart = sampleEngine.start(liveSampleSession);
+          sampleEngine.stop(true);
+          await cancelledSampleStart;
+          await sampleEngine.context.setSinkId({ type: "none" });
+          await sampleEngine.start(liveSampleSession);
+          await wait(100);
+          assert(sampleEngine.snapshot().sampleErrors.length === 0, "A valid sample was reported as missing.");
+          assert(sampleEngine.snapshot().meters[liveSampleTrack.id].peak < 0.005, "A muted live sampler was audible.");
+          const unmutedSampleSession = {
+            ...liveSampleSession,
+            tracks: [{ ...liveSampleTrack, muted: false }],
+          };
+          sampleEngine.updateSession(unmutedSampleSession);
+          await wait(180);
+          assert(sampleEngine.snapshot().meters[liveSampleTrack.id].peak > 0.03,
+            "Live sampler playback did not reach the track meter after unmuting.");
+          sampleEngine.stop(true);
+          await sampleEngine.previewInstrumentNote(unmutedSampleSession, liveSampleTrack.id, 60, 127);
+          await wait(120);
+          assert(sampleEngine.snapshot().meters[liveSampleTrack.id].peak > 0.03,
+            "Sampler preview did not reach its track audio path.");
+          await sampleEngine.dispose();
+          sampleEngine = null;
+
+          missingEngine = new AudioEngine(() => "data:audio/wav;base64,AA==");
+          const missingLive = {
+            ...sampleSession,
+            tracks: [{ ...samplerTrack, muted: true }],
+          };
+          const cancelledMissingStart = missingEngine.start(missingLive);
+          missingEngine.stop(true);
+          await cancelledMissingStart;
+          await missingEngine.context.setSinkId({ type: "none" });
+          await missingEngine.start(missingLive);
+          await wait(80);
+          assert(missingEngine.snapshot().sampleErrors.includes("sample-asset"),
+            "A missing sample was not surfaced in engine state.");
+          assert(/missing or unsupported/i.test(missingEngine.snapshot().error ?? ""),
+            "A missing sample had no clear recovery message.");
+          assert.equal(missingLive.tracks[0].notes[0].id, "sample-pitch",
+            "Starting with a missing sample discarded its MIDI pattern.");
+          await missingEngine.dispose();
+          missingEngine = null;
+        } finally {
+          URL.revokeObjectURL(sampleUrl);
+        }
+
+        result.textContent = `PASS: MIDI, sampler and drum audio rendering, drum step sequencing, bus routing/effects, live sample meters/preview, transport and recovery; WAV peak ${peak}.`;
         document.body.dataset.testResult = "pass";
       } catch (error) {
         result.textContent = `FAIL: ${error instanceof Error ? error.message : String(error)}`;
         document.body.dataset.testResult = "fail";
       } finally {
         await engine?.dispose();
+        await sampleEngine?.dispose();
+        await missingEngine?.dispose();
         await report({ result: result.textContent });
       }
     </script>

@@ -34,7 +34,7 @@ export type AudioClip = {
   waveform: number[];
 };
 
-export type TrackType = "audio" | "instrument";
+export type TrackType = "audio" | "instrument" | "sampler" | "drum" | "unsupported";
 
 export type MidiNote = {
   id: string;
@@ -50,6 +50,32 @@ export type InstrumentState = {
   decay: number;
   sustain: number;
   release: number;
+};
+
+export type SamplerState = {
+  sampleAssetId: string | null;
+  rootNote: number;
+  gain: number;
+};
+
+export type DrumPadState = {
+  id: string;
+  name: string;
+  note: number;
+  sampleAssetId: string | null;
+  gain: number;
+};
+
+export type DrumKitState = {
+  pads: DrumPadState[];
+  patternLengthBars?: number;
+  patternStartBeat?: number;
+};
+
+export type InstrumentRecoveryState = {
+  originalType: string;
+  rawState: JsonValue | null;
+  message: string;
 };
 
 export type EffectType = "equalizer" | "reverb" | "delay" | "compressor";
@@ -132,6 +158,9 @@ export type Track = {
   clips: AudioClip[];
   notes: MidiNote[];
   instrument: InstrumentState | null;
+  sampler?: SamplerState | null;
+  drumKit?: DrumKitState | null;
+  instrumentRecovery?: InstrumentRecoveryState | null;
   effects: EffectState[];
   outputBusId: string | null;
   sends: BusSend[];
@@ -222,6 +251,8 @@ export type AppBridge = {
     sessionId: string,
     trackId?: string,
   ): Promise<{ clip: AudioClip; assetUrl: string } | null>;
+  listAudioAssets(): Promise<ProjectAsset[]>;
+  importSample(): Promise<ProjectAsset | null>;
   startRecording(input: RecordingStart): Promise<string>;
   appendRecordingChunk(recordingId: string, samples: Float32Array): Promise<void>;
   finishRecording(input: RecordingFinish): Promise<RecordedTake>;

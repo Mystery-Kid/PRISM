@@ -5,16 +5,22 @@ import {
 } from "lucide-react";
 import type {
   AudioClip,
+  DrumPadState,
   InstrumentState,
   MidiNote,
+  ProjectAsset,
   SongSession,
+  TrackType,
   Track,
 } from "@shared/types";
+import { createDefaultDrumKit, createDefaultSamplerState } from "@shared/instrument-tracks";
 import { AudioEngine, type AudioDevice, type AudioEngineSnapshot } from "../audio/AudioEngine";
 import { secondsPerBeat } from "../audio/time";
 import { getPianoNoteDragUpdate, type PianoNoteDragState } from "./piano-roll";
 import { EffectsPanel } from "./EffectsPanel";
 import { RoutingPanel } from "./RoutingPanel";
+import { SamplerPanel } from "./SamplerPanel";
+import { DrumPanel } from "./DrumPanel";
 import { getAllowedBusTargets } from "@shared/audio-routing";
 import prismLogo from "../assets/prism-logo.png";
 
@@ -35,6 +41,7 @@ const emptySnapshot: AudioEngineSnapshot = {
   baseLatency: null,
   outputLatency: null,
   meters: {},
+  sampleErrors: [],
   inputMeter: { peak: 0, rms: 0 },
   inputChannels: null,
 };
@@ -50,16 +57,20 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const [selectedTrack, setSelectedTrack] = useState(initialSession.tracks[0]?.id ?? "");
   const [selectedClip, setSelectedClip] = useState<string | null>(null);
   const [selectedNote, setSelectedNote] = useState<string | null>(null);
+  const [recoveryDismissedTrackId, setRecoveryDismissedTrackId] = useState("");
+  const [dismissedSnapshotError, setDismissedSnapshotError] = useState("");
   const [zoom, setZoom] = useState(1);
   const [snap, setSnap] = useState(true);
   const [inputDevices, setInputDevices] = useState<AudioDevice[]>([]);
   const [outputDevices, setOutputDevices] = useState<AudioDevice[]>([]);
+  const [audioAssets, setAudioAssets] = useState<ProjectAsset[]>([]);
+  const [audioAssetsLoading, setAudioAssetsLoading] = useState(true);
   const [inputDevice, setInputDevice] = useState(() => localStorage.getItem("prism.audioInput") ?? "");
   const [outputDevice, setOutputDevice] = useState(() => localStorage.getItem("prism.audioOutput") ?? "");
   const [monitoring, setMonitoring] = useState(false);
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState("");
-  const [panel, setPanel] = useState<"mixer" | "clip" | "piano" | "effects" | "routing" | "devices">("mixer");
+  const [panel, setPanel] = useState<"mixer" | "clip" | "piano" | "sampler" | "drums" | "effects" | "routing" | "devices">("mixer");
   const [selectedEffectBusId, setSelectedEffectBusId] = useState("");
   const [notice, setNotice] = useState("");
   const [historyAvailability, setHistoryAvailability] = useState({ canUndo: false, canRedo: false });
@@ -76,7 +87,21 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const clips = useMemo(() => session.tracks.flatMap((track) => track.clips.map((clip) => ({ track, clip }))), [session.tracks]);
   const duration = Math.max(16, ...clips.map(({ clip }) => clip.startSeconds + clip.durationSeconds), ...session.tracks.flatMap((track) => track.notes.map((note) => (note.startBeat + note.durationBeats) * beatSeconds)));
   const selected = clips.find(({ clip }) => clip.id === selectedClip);
+  const selectedTrackData = session.tracks.find((track) => track.id === selectedTrack);
   const selectedInstrument = session.tracks.find((track) => track.id === selectedTrack && track.type === "instrument");
+  const selectedSamplerTrack = session.tracks.find((track) => track.id === selectedTrack && track.type === "sampler");
+  const selectedDrumTrack = session.tracks.find((track) => track.id === selectedTrack && track.type === "drum");
+  const selectedPatternTrack = session.tracks.find((track) =>
+    track.id === selectedTrack &&
+    ["instrument", "sampler", "drum", "unsupported"].includes(track.type),
+  );
+  const selectedPatternNote = selectedPatternTrack?.notes.find((note) => note.id === selectedNote);
+  const recoveryMessage = selectedTrackData?.id !== recoveryDismissedTrackId
+    ? selectedTrackData?.instrumentRecovery?.message ?? ""
+    : "";
+  const visibleSnapshotError = snapshot.error && snapshot.error !== dismissedSnapshotError
+    ? snapshot.error
+    : "";
 
   useEffect(() => {
     if (panel !== "piano" || !pianoGridRef.current) return;
@@ -123,6 +148,23 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     // Engine lifetime is scoped to the open song.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAudioAssetsLoading(true);
+    void window.prism.listAudioAssets().then((assets) => {
+      if (!cancelled) setAudioAssets(assets);
+    }).catch((cause: unknown) => {
+      if (!cancelled) setEngineError(cause instanceof Error ? cause.message : "Audio samples could not be listed.");
+    }).finally(() => {
+      if (!cancelled) setAudioAssetsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [initialSession.id]);
+
+  useEffect(() => {
+    if (!snapshot.error) setDismissedSnapshotError("");
+  }, [snapshot.error]);
 
   useEffect(() => {
     if (!engine) return;
@@ -280,6 +322,68 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       setEngineError(cause instanceof Error ? cause.message : "The audio operation failed.");
     }
   };
+  const addMidiNote = (trackId: string, pitch: number, durationBeats = 1) => {
+    const track = session.tracks.find((item) => item.id === trackId);
+    if (!track || !["instrument", "sampler", "drum"].includes(track.type)) {
+      setNotice("Choose a supported MIDI instrument track before adding a note.");
+      return;
+    }
+    const beat = snapshot.position / beatSeconds;
+    const startBeat = snap ? Math.round(beat * 4) / 4 : beat;
+    const note: MidiNote = {
+      id: crypto.randomUUID(),
+      pitch: Math.round(clamp(pitch, 0, 127)),
+      startBeat,
+      durationBeats,
+      velocity: 92,
+    };
+    updateTrack(track.id, { notes: [...track.notes, note] });
+    setSelectedNote(note.id);
+    setPanel("piano");
+  };
+  const previewSampleNote = (trackId: string, pitch: number) => safe(async () => {
+    if (engine) await engine.previewInstrumentNote(session, trackId, pitch);
+  });
+  const recoverUnsupportedTrack = (trackId: string) => {
+    updateTrack(trackId, {
+      type: "instrument",
+      instrument: { waveform: "triangle", attack: 0.015, decay: 0.12, sustain: 0.62, release: 0.18 },
+      sampler: null,
+      drumKit: null,
+    });
+    setRecoveryDismissedTrackId(trackId);
+    setPanel("piano");
+    setNotice("Recovered as a built-in synth. The original unsupported state and MIDI notes remain saved.");
+  };
+  const importSampleForTrack = (trackId: string, padId?: string) => safe(async () => {
+    const asset = await window.prism.importSample();
+    if (!asset) return;
+    setAudioAssets((current) => [asset, ...current.filter((item) => item.id !== asset.id)]);
+    setSession((current) => ({
+      ...current,
+      tracks: current.tracks.map((track) => {
+        if (track.id !== trackId) return track;
+        if (track.type === "sampler") {
+          return {
+            ...track,
+            sampler: { ...(track.sampler ?? createDefaultSamplerState()), sampleAssetId: asset.id },
+          };
+        }
+        if (track.type === "drum" && padId) {
+          const kit = track.drumKit ?? createDefaultDrumKit();
+          return {
+            ...track,
+            drumKit: {
+              ...kit,
+              pads: kit.pads.map((pad) => pad.id === padId ? { ...pad, sampleAssetId: asset.id } : pad),
+            },
+          };
+        }
+        return track;
+      }),
+    }));
+    setNotice(`Loaded ${asset.fileName}. Its source is stored in the project library.`);
+  });
   const applyOutputDevice = async () => {
     if (engine && outputDevice && outputDevice !== "default") {
       await engine.setOutputDevice(outputDevice);
@@ -306,18 +410,32 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     engine?.seek(position);
     setSnapshot((old) => ({ ...old, position }));
   };
-  const addTrack = (type: "audio" | "instrument") => {
+  const addTrack = (type: Extract<TrackType, "audio" | "instrument" | "sampler" | "drum">) => {
     const number = session.tracks.filter((track) => track.type === type).length + 1;
     const track: Track = {
-      id: crypto.randomUUID(), name: type === "audio" ? `Audio ${number}` : `Instrument ${number}`,
+      id: crypto.randomUUID(),
+      name: type === "audio" ? `Audio ${number}`
+        : type === "instrument" ? `Instrument ${number}`
+          : type === "sampler" ? `Sampler ${number}` : `Drums ${number}`,
       type, color: colors[session.tracks.length % colors.length], volume: 0.82, pan: 0,
       muted: false, solo: false, recordArmed: false, clips: [], notes: [],
       instrument: type === "instrument" ? { waveform: "triangle", attack: 0.015, decay: 0.12, sustain: 0.62, release: 0.18 } : null,
-       effects: [], outputBusId: null, sends: [],
+      sampler: type === "sampler" ? createDefaultSamplerState() : null,
+      drumKit: type === "drum" ? createDefaultDrumKit() : null,
+      instrumentRecovery: null,
+      effects: [], outputBusId: null, sends: [],
     };
     setSession((current) => ({ ...current, tracks: [...current.tracks, track] }));
     setSelectedTrack(track.id);
-    setPanel(type === "instrument" ? "piano" : "mixer");
+    setPanel(type === "instrument" ? "piano"
+      : type === "sampler" ? "sampler"
+        : type === "drum" ? "drums" : "mixer");
+  };
+  const selectTrack = (track: Track) => {
+    setSelectedTrack(track.id);
+    setPanel(track.type === "sampler" ? "sampler"
+      : track.type === "drum" ? "drums"
+        : track.type === "instrument" || track.type === "unsupported" ? "piano" : "mixer");
   };
   const removeTrack = (trackId: string) => {
     if (recording) return;
@@ -509,8 +627,10 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       </div>
     </section>
 
-    {(engineError || saveError || notice) && <div className={`workstation-notice ${engineError || saveError ? "error-notice" : ""}`} role={engineError || saveError ? "alert" : "status"} data-testid="status-workstation-message">
-      <span>{engineError || saveError || notice}</span><button data-testid="button-dismiss-message" aria-label="Dismiss message" onClick={() => { setEngineError(""); setSaveError(""); setNotice(""); }}><X size={14} /></button>
+    {(engineError || saveError || recoveryMessage || visibleSnapshotError || notice) && <div className={`workstation-notice ${engineError || saveError || recoveryMessage || visibleSnapshotError ? "error-notice" : ""}`} role={engineError || saveError || recoveryMessage || visibleSnapshotError ? "alert" : "status"} data-testid="status-workstation-message">
+      <span>{engineError || saveError || recoveryMessage || visibleSnapshotError || notice}</span>
+      {recoveryMessage && selectedTrackData?.type === "unsupported" && <button className="button button-subtle recovery-action" data-testid="button-recover-unsupported-track" onClick={() => recoverUnsupportedTrack(selectedTrackData.id)}>Recover as synth</button>}
+      <button data-testid="button-dismiss-message" aria-label="Dismiss message" onClick={() => { setEngineError(""); setSaveError(""); setNotice(""); setRecoveryDismissedTrackId(selectedTrack); setDismissedSnapshotError(snapshot.error ?? ""); }}><X size={14} /></button>
     </div>}
 
     <section className="arrangement">
@@ -521,6 +641,8 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
           <button className="button button-subtle" data-testid="button-import-audio" onClick={() => void importAudio()}><Plus size={14} /> Import audio</button>
           <button className="button button-subtle" data-testid="button-add-audio-track" onClick={() => addTrack("audio")}><Plus size={14} /> Audio track</button>
           <button className="button button-subtle" data-testid="button-add-instrument-track" onClick={() => addTrack("instrument")}><Music2 size={14} /> Instrument</button>
+          <button className="button button-subtle" data-testid="button-add-sampler-track" onClick={() => addTrack("sampler")}><AudioLines size={14} /> Sampler</button>
+          <button className="button button-subtle" data-testid="button-add-drum-track" onClick={() => addTrack("drum")}><Music2 size={14} /> Drums</button>
           <label className="snap-toggle"><input data-testid="input-snap" type="checkbox" checked={snap} onChange={(event) => setSnap(event.target.checked)} /> Snap</label>
         </div>
         <div className="zoom-control"><span>Zoom</span><input data-testid="input-timeline-zoom" aria-label="Timeline zoom" type="range" min=".5" max="2.4" step=".05" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></div>
@@ -540,8 +662,8 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
           {session.tracks.map((track, index) => <div className={`timeline-track-row ${selectedTrack === track.id ? "track-selected" : ""}`} key={track.id}>
             <div className="track-controls">
               <span className="track-color" style={{ background: track.color || colors[index % colors.length] }} />
-              <button className="track-name" data-testid={`button-rename-track-${track.id}`} title="Rename track" onClick={() => { const name = window.prompt("Track name", track.name); if (name?.trim()) updateTrack(track.id, { name: name.trim() }); setSelectedTrack(track.id); }}>{track.name}</button>
-              <small className="track-kind">{track.type === "instrument" ? "INSTRUMENT" : "AUDIO"}</small>
+              <button className="track-name" data-testid={`button-rename-track-${track.id}`} title="Rename track" onClick={() => { const name = window.prompt("Track name", track.name); if (name?.trim()) updateTrack(track.id, { name: name.trim() }); selectTrack(track); }}>{track.name}</button>
+              <small className="track-kind">{track.type === "instrument" ? "INSTRUMENT" : track.type === "sampler" ? "SAMPLER" : track.type === "drum" ? "DRUM KIT" : track.type === "unsupported" ? "UNSUPPORTED" : "AUDIO"}</small>
               <div className="track-buttons">
                 <button className={`track-toggle ${track.muted ? "active" : ""}`} data-testid={`button-mute-${track.id}`} aria-label={`${track.muted ? "Unmute" : "Mute"} ${track.name}`} aria-pressed={track.muted} onClick={() => updateTrack(track.id, { muted: !track.muted })}>{track.muted ? <VolumeX size={12} /> : <Volume2 size={12} />}</button>
                 <button className={`track-toggle ${track.solo ? "solo-active" : ""}`} data-testid={`button-solo-${track.id}`} aria-label={`${track.solo ? "Unsolo" : "Solo"} ${track.name}`} aria-pressed={track.solo} onClick={() => updateTrack(track.id, { solo: !track.solo })}>S</button>
@@ -552,14 +674,14 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
               <label className="track-pan"><span>PAN</span><input data-testid={`input-track-pan-${track.id}`} aria-label={`${track.name} pan`} type="range" min="-1" max="1" step=".01" value={track.pan} onChange={(event) => updateTrack(track.id, { pan: Number(event.target.value) })} /></label>
             </div>
             <div className="timeline-lane" onClick={(event) => {
-              setSelectedTrack(track.id);
               if ((event.target as HTMLElement).closest(".audio-clip, .midi-note")) return;
+              selectTrack(track);
               const bounds = event.currentTarget.getBoundingClientRect();
               seek((event.clientX - bounds.left) / pixelsPerSecond);
             }}>
               {Array.from({ length: Math.ceil(duration / barSeconds) + 2 }, (_, index) => <div key={index} className="lane-gridline" style={{ left: `${index * barSeconds * pixelsPerSecond}px` }} />)}
               {track.clips.map((clip) => <ClipBlock key={clip.id} clip={clip} selected={selectedClip === clip.id} pps={pixelsPerSecond} snapStep={beatSeconds / 4} snap={snap} onSelect={() => { setSelectedTrack(track.id); setSelectedClip(clip.id); setPanel("clip"); }} onUpdate={(update) => updateClip(track.id, clip.id, update)} onDelete={() => removeClip(clip.id)} />)}
-              {track.type === "instrument" && track.notes.map((note) => <div key={note.id} className={`midi-note ${selectedNote === note.id ? "selected" : ""}`} data-testid={`note-${note.id}`} style={{ left: `${note.startBeat * beatSeconds * pixelsPerSecond}px`, width: `${Math.max(12, note.durationBeats * beatSeconds * pixelsPerSecond)}px`, top: `${Math.max(3, (127 - note.pitch) * .62)}px` }} onClick={(event) => { event.stopPropagation(); setSelectedTrack(track.id); setSelectedNote(note.id); setPanel("piano"); }} title={`${pitchName(note.pitch)} · velocity ${note.velocity}`} />)}
+              {["instrument", "sampler", "drum", "unsupported"].includes(track.type) && track.notes.map((note) => <div key={note.id} className={`midi-note ${selectedNote === note.id ? "selected" : ""}`} data-testid={`note-${note.id}`} style={{ left: `${note.startBeat * beatSeconds * pixelsPerSecond}px`, width: `${Math.max(12, note.durationBeats * beatSeconds * pixelsPerSecond)}px`, top: `${Math.max(3, (127 - note.pitch) * .62)}px` }} onClick={(event) => { event.stopPropagation(); setSelectedTrack(track.id); setSelectedNote(note.id); setPanel("piano"); }} title={`${pitchName(note.pitch)} · velocity ${note.velocity}`} />)}
               <div className="playhead" style={{ left: `${snapshot.position * pixelsPerSecond}px` }} />
             </div>
           </div>)}
@@ -569,9 +691,9 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       <div className="arrangement-footer"><span>{session.tracks.length} {session.tracks.length === 1 ? "track" : "tracks"}</span><span>Local project audio · {session.timeSignature} · {session.tempo} BPM</span></div>
     </section>
 
-    <section className={`workstation-bottom ${panel === "effects" ? "effects-open" : ""} ${panel === "routing" ? "routing-open" : ""}`}>
+    <section className={`workstation-bottom ${panel === "effects" ? "effects-open" : ""} ${panel === "routing" ? "routing-open" : ""} ${panel === "sampler" ? "sampler-open" : ""} ${panel === "drums" ? "drums-open" : ""}`}>
       <nav className="lower-panel-tabs" aria-label="Workstation panels">
-        {(["mixer", "clip", "piano", "effects", "routing", "devices"] as const).map((tab) => <button key={tab} className={`lower-tab ${panel === tab ? "active" : ""}`} data-testid={`tab-${tab}`} onClick={() => { if (tab === "effects") setSelectedEffectBusId(""); setPanel(tab); }}>{tab === "mixer" ? <SlidersHorizontal size={13} /> : tab === "clip" ? <AudioLines size={13} /> : tab === "piano" ? <Music2 size={13} /> : tab === "effects" ? <Sparkles size={13} /> : tab === "routing" ? <AudioLines size={13} /> : <Headphones size={13} />}{tab === "clip" ? "Clip" : tab === "devices" ? "I/O" : tab[0].toUpperCase() + tab.slice(1)}</button>)}
+        {(["mixer", "clip", "piano", "sampler", "drums", "effects", "routing", "devices"] as const).map((tab) => <button key={tab} className={`lower-tab ${panel === tab ? "active" : ""}`} data-testid={`tab-${tab}`} onClick={() => { if (tab === "effects") setSelectedEffectBusId(""); setPanel(tab); }}>{tab === "mixer" ? <SlidersHorizontal size={13} /> : tab === "clip" ? <AudioLines size={13} /> : tab === "piano" || tab === "drums" ? <Music2 size={13} /> : tab === "sampler" || tab === "routing" ? <AudioLines size={13} /> : tab === "effects" ? <Sparkles size={13} /> : <Headphones size={13} />}{tab === "clip" ? "Clip" : tab === "devices" ? "I/O" : tab[0].toUpperCase() + tab.slice(1)}</button>)}
       </nav>
       {panel === "mixer" && <div className="mixer-channels">
         {session.tracks.map((track) => <div className="mixer-channel" key={track.id}>
@@ -590,37 +712,82 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
           <button className="button button-subtle" data-testid="button-split-clip" onClick={splitClip}>Split at playhead</button><button className="button button-subtle" data-testid="button-duplicate-clip" onClick={duplicateClip}>Duplicate</button><button className="button button-subtle danger-button" data-testid="button-delete-clip" onClick={() => removeClip(selected.clip.id)}><Trash2 size={13} /> Delete</button>
         </> : <div className="panel-empty">Select an audio clip to trim, fade, duplicate, or split it.</div>}
       </div>}
+      {panel === "sampler" && (selectedSamplerTrack ? <div className="instrument-panel-wrap">
+        <SamplerPanel
+          sampler={selectedSamplerTrack.sampler ?? createDefaultSamplerState()}
+          assets={audioAssets}
+          assetsLoading={audioAssetsLoading}
+          missingSampleIds={snapshot.sampleErrors}
+          recoveryMessage={selectedSamplerTrack.instrumentRecovery?.message ?? ""}
+          onChange={(sampler) => updateTrack(selectedSamplerTrack.id, { sampler })}
+          onImportSample={() => { void importSampleForTrack(selectedSamplerTrack.id); }}
+          onPreview={() => { void previewSampleNote(selectedSamplerTrack.id, selectedSamplerTrack.sampler?.rootNote ?? 60); }}
+          onAddNote={() => addMidiNote(selectedSamplerTrack.id, selectedSamplerTrack.sampler?.rootNote ?? 60)}
+          onOpenPattern={() => setPanel("piano")}
+        />
+      </div> : <div className="panel-empty">Select a sampler track to load a sample and edit its MIDI pattern.</div>)}
+      {panel === "drums" && (selectedDrumTrack ? <div className="instrument-panel-wrap">
+        <DrumPanel
+          drumKit={selectedDrumTrack.drumKit ?? createDefaultDrumKit()}
+          notes={selectedDrumTrack.notes}
+          assets={audioAssets}
+          assetsLoading={audioAssetsLoading}
+          missingSampleIds={snapshot.sampleErrors}
+          recoveryMessage={selectedDrumTrack.instrumentRecovery?.message ?? ""}
+          tempo={session.tempo}
+          timeSignature={session.timeSignature}
+          onChange={(drumKit) => updateTrack(selectedDrumTrack.id, { drumKit })}
+          onNotesChange={(notes) => updateTrack(selectedDrumTrack.id, { notes })}
+          onImportSample={(padId) => { void importSampleForTrack(selectedDrumTrack.id, padId); }}
+          onPreviewPad={(pad: DrumPadState) => { void previewSampleNote(selectedDrumTrack.id, pad.note); }}
+          onAddHit={(pad: DrumPadState) => addMidiNote(selectedDrumTrack.id, pad.note, 0.25)}
+          onOpenPattern={() => setPanel("piano")}
+        />
+      </div> : <div className="panel-empty">Select a drum track to assign samples and build a pad pattern.</div>)}
       {panel === "piano" && <div className="piano-panel">
         <div className="piano-tools">
-          <label>Instrument<select data-testid="select-oscillator" value={selectedInstrument?.instrument?.waveform ?? "triangle"} onChange={(event) => selectedInstrument?.instrument && updateTrack(selectedInstrument.id, { instrument: { ...selectedInstrument.instrument, waveform: event.target.value as OscillatorType } })}>{["sine", "triangle", "square", "sawtooth"].map((wave) => <option key={wave}>{wave}</option>)}</select></label>
-          <label>Attack<input data-testid="input-instrument-attack" type="number" min="0.001" max="4" step="0.001" value={selectedInstrument?.instrument?.attack ?? 0.01} onChange={(event) => updateInstrumentParameter("attack", Number(event.target.value))} /></label>
-          <label>Decay<input data-testid="input-instrument-decay" type="number" min="0.001" max="4" step="0.001" value={selectedInstrument?.instrument?.decay ?? 0.12} onChange={(event) => updateInstrumentParameter("decay", Number(event.target.value))} /></label>
-          <label>Sustain<input data-testid="input-instrument-sustain" type="number" min="0" max="1" step="0.01" value={selectedInstrument?.instrument?.sustain ?? 0.65} onChange={(event) => updateInstrumentParameter("sustain", Number(event.target.value))} /></label>
-          <label>Release<input data-testid="input-instrument-release" type="number" min="0.005" max="4" step="0.005" value={selectedInstrument?.instrument?.release ?? 0.18} onChange={(event) => updateInstrumentParameter("release", Number(event.target.value))} /></label>
-          <button className="button button-subtle" data-testid="button-add-midi-note" onClick={() => {
-            if (!selectedInstrument) { setNotice("Select or add an instrument track to write MIDI."); return; }
-            const note: MidiNote = { id: crypto.randomUUID(), pitch: 60, startBeat: Math.floor(snapshot.position / beatSeconds), durationBeats: 1, velocity: 92 };
-            updateTrack(selectedInstrument.id, { notes: [...selectedInstrument.notes, note] });
-            setSelectedNote(note.id);
-          }}><Plus size={13} /> Add note</button>
-          {selectedInstrument?.notes.some((note) => note.id === selectedNote) && <><label>Pitch<input data-testid="input-note-pitch" type="number" min="0" max="127" value={session.tracks.flatMap((track) => track.notes).find((note) => note.id === selectedNote)?.pitch ?? 60} onChange={(event) => { const note = session.tracks.flatMap((track) => track.notes).find((item) => item.id === selectedNote); if (note) { const owner = session.tracks.find((track) => track.notes.some((item) => item.id === note.id)); if (owner) updateNote(owner.id, note.id, { pitch: Math.round(clamp(Number(event.target.value), 0, 127)) }); } }} /></label>
-            <label>Velocity<input data-testid="input-note-velocity" type="range" min="1" max="127" value={session.tracks.flatMap((track) => track.notes).find((note) => note.id === selectedNote)?.velocity ?? 92} onChange={(event) => { const note = session.tracks.flatMap((track) => track.notes).find((item) => item.id === selectedNote); const owner = session.tracks.find((track) => track.notes.some((item) => item.id === selectedNote)); if (note && owner) updateNote(owner.id, note.id, { velocity: Number(event.target.value) }); }} /></label>
-            <button className="icon-button compact danger-hover" data-testid="button-delete-midi-note" title="Delete selected note" onClick={() => { setSession((current) => ({ ...current, tracks: current.tracks.map((track) => ({ ...track, notes: track.notes.filter((note) => note.id !== selectedNote) })) })); setSelectedNote(null); }}><Trash2 size={13} /></button></>}
+          {selectedInstrument && <>
+            <label>Instrument<select data-testid="select-oscillator" value={selectedInstrument.instrument?.waveform ?? "triangle"} onChange={(event) => selectedInstrument.instrument && updateTrack(selectedInstrument.id, { instrument: { ...selectedInstrument.instrument, waveform: event.target.value as OscillatorType } })}>{["sine", "triangle", "square", "sawtooth"].map((wave) => <option key={wave}>{wave}</option>)}</select></label>
+            <label>Attack<input data-testid="input-instrument-attack" type="number" min="0.001" max="4" step="0.001" value={selectedInstrument.instrument?.attack ?? 0.01} onChange={(event) => updateInstrumentParameter("attack", Number(event.target.value))} /></label>
+            <label>Decay<input data-testid="input-instrument-decay" type="number" min="0.001" max="4" step="0.001" value={selectedInstrument.instrument?.decay ?? 0.12} onChange={(event) => updateInstrumentParameter("decay", Number(event.target.value))} /></label>
+            <label>Sustain<input data-testid="input-instrument-sustain" type="number" min="0" max="1" step="0.01" value={selectedInstrument.instrument?.sustain ?? 0.65} onChange={(event) => updateInstrumentParameter("sustain", Number(event.target.value))} /></label>
+            <label>Release<input data-testid="input-instrument-release" type="number" min="0.005" max="4" step="0.005" value={selectedInstrument.instrument?.release ?? 0.18} onChange={(event) => updateInstrumentParameter("release", Number(event.target.value))} /></label>
+          </>}
+          {!selectedInstrument && <span className="pattern-track-label" data-testid="text-pattern-track">
+            {selectedPatternTrack ? `MIDI pattern · ${selectedPatternTrack.name}` : "Select a MIDI track"}
+          </span>}
+          {selectedPatternTrack && <button className="button button-subtle" data-testid="button-add-midi-note" disabled={selectedPatternTrack.type === "unsupported"} onClick={() => {
+            const pitch = selectedPatternTrack.type === "sampler"
+              ? selectedPatternTrack.sampler?.rootNote ?? 60
+              : selectedPatternTrack.type === "drum"
+                ? selectedPatternTrack.drumKit?.pads[0]?.note ?? 36
+                : 60;
+            addMidiNote(selectedPatternTrack.id, pitch);
+          }}><Plus size={13} /> Add note</button>}
+          {selectedPatternNote && <>
+            <label>Pitch<input data-testid="input-note-pitch" type="number" min="0" max="127" value={selectedPatternNote.pitch} onChange={(event) => updateNote(selectedPatternTrack!.id, selectedPatternNote.id, { pitch: Math.round(clamp(Number(event.target.value), 0, 127)) })} /></label>
+            <label>Velocity<input data-testid="input-note-velocity" type="range" min="1" max="127" value={selectedPatternNote.velocity} onChange={(event) => updateNote(selectedPatternTrack!.id, selectedPatternNote.id, { velocity: Number(event.target.value) })} /></label>
+            <button className="icon-button compact danger-hover" data-testid="button-delete-midi-note" title="Delete selected note" onClick={() => { setSession((current) => ({ ...current, tracks: current.tracks.map((track) => ({ ...track, notes: track.notes.filter((note) => note.id !== selectedNote) })) })); setSelectedNote(null); }}><Trash2 size={13} /></button>
+          </>}
         </div>
         <div className="piano-grid" ref={pianoGridRef} data-testid="piano-roll" onClick={(event) => {
           if ((event.target as HTMLElement).closest(".piano-key, .piano-note")) return;
-          if (!selectedInstrument) { setNotice("Add an instrument track to create MIDI notes."); return; }
+          if (!selectedPatternTrack || selectedPatternTrack.type === "unsupported") {
+            setNotice("Select a supported sampler, drum, or instrument track to create MIDI notes.");
+            return;
+          }
           const bounds = event.currentTarget.getBoundingClientRect();
           const beat = Math.max(0, (event.clientX - bounds.left + event.currentTarget.scrollLeft) / (beatSeconds * pixelsPerSecond));
           const pitch = clamp(127 - Math.floor((event.clientY - bounds.top + event.currentTarget.scrollTop) / 15), 0, 127);
           const note: MidiNote = { id: crypto.randomUUID(), pitch, startBeat: snap ? Math.round(beat * 4) / 4 : beat, durationBeats: 1, velocity: 90 };
-          updateTrack(selectedInstrument.id, { notes: [...selectedInstrument.notes, note] });
+          updateTrack(selectedPatternTrack.id, { notes: [...selectedPatternTrack.notes, note] });
           setSelectedNote(note.id);
         }}>
           {Array.from({ length: 128 }, (_, index) => <div key={index} className={`piano-row ${isBlackKey(127 - index) ? "black-key-row" : ""}`}><span className="piano-key">{pitchName(127 - index)}</span></div>)}
-          {selectedInstrument?.notes.map((note) => <PianoNote key={note.id} note={note} selected={note.id === selectedNote} beatWidth={beatSeconds * pixelsPerSecond} snap={snap} onSelect={() => { setSelectedNote(note.id); setSelectedTrack(selectedInstrument.id); }} onChange={(update) => updateNote(selectedInstrument.id, note.id, update)} />)}
+          {selectedPatternTrack?.notes.map((note) => <PianoNote key={note.id} note={note} selected={note.id === selectedNote} beatWidth={beatSeconds * pixelsPerSecond} snap={snap} onSelect={() => { setSelectedNote(note.id); setSelectedTrack(selectedPatternTrack.id); }} onChange={(update) => updateNote(selectedPatternTrack.id, note.id, update)} />)}
         </div>
-        {!selectedInstrument && <div className="piano-hint">Choose an instrument track to edit notes. Click the grid to place a note.</div>}
+        {!selectedPatternTrack && <div className="piano-hint">Choose an instrument, sampler, or drum track to edit MIDI notes. Click the grid to place a note.</div>}
+        {selectedPatternTrack?.type === "unsupported" && <div className="piano-hint">This track’s MIDI is preserved but cannot play until you recover it as a supported instrument.</div>}
       </div>}
       {panel === "routing" && <RoutingPanel
         session={session}

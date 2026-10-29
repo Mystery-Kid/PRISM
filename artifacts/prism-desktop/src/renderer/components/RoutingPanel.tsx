@@ -277,7 +277,7 @@ export function RoutingPanel({
   };
 
   const invalidOutputs = buses.filter((bus) => bus.outputBusId && !routeOptions(bus.id, "bus").some((target) => target.id === bus.outputBusId));
-  const audioTracks = tracks.filter((track) => track.type === "audio" || track.type === "instrument");
+  const audioTracks = tracks;
 
   return <section className="routing-panel" aria-label="Audio bus routing">
     <header className="rp-header">
@@ -383,7 +383,7 @@ export function RoutingPanel({
             <div className="rp-track-main">
               <button className="rp-track-select" type="button" onClick={() => onSelectTrack(track.id)} aria-pressed={selected} aria-label={`Select track ${track.name}`}>
                 <span className={`rp-track-type ${track.type}`}><AudioLines size={13} /></span>
-                <span className="rp-track-name"><strong>{track.name}</strong><small>{track.type === "instrument" ? "INSTRUMENT" : "AUDIO"} · {String(index + 1).padStart(2, "0")}</small></span>
+                <span className="rp-track-name"><strong>{track.name}</strong><small>{track.type === "instrument" ? "INSTRUMENT" : track.type === "sampler" ? "SAMPLER" : track.type === "drum" ? "DRUM KIT" : track.type === "unsupported" ? "UNSUPPORTED" : "AUDIO"} · {String(index + 1).padStart(2, "0")}</small></span>
               </button>
               <div className="rp-track-meter">{renderMeter(track.id, `${track.name} track`)}</div>
               <label className="rp-track-output">

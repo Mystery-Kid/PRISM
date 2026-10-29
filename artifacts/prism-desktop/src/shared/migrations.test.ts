@@ -144,3 +144,112 @@ test("migration refuses a cyclic bus graph instead of silently changing its soun
     ],
   }), /cycle/i);
 });
+
+test("sampler sample references, settings, and MIDI patterns survive reopening", () => {
+  const migrated = migrateSongSession({
+    id: "sampler-session",
+    releaseId: "release-1",
+    title: "Sampled lead",
+    tempo: 104,
+    timeSignature: "4/4",
+    tracks: [{
+      id: "sampler-1",
+      name: "Vocal chop",
+      type: "sampler",
+      sampler: { sampleAssetId: "missing-sample-id", rootNote: 57, gain: 0.78 },
+      notes: [
+        { id: "chop-a", pitch: 57, startBeat: 0, durationBeats: 0.5, velocity: 103 },
+        { id: "chop-b", pitch: 64, startBeat: 1, durationBeats: 0.25, velocity: 86 },
+      ],
+    }],
+  });
+  assert.equal(migrated.tracks[0].type, "sampler");
+  assert.deepEqual(migrated.tracks[0].sampler, {
+    sampleAssetId: "missing-sample-id",
+    rootNote: 57,
+    gain: 0.78,
+  });
+  assert.deepEqual(migrated.tracks[0].notes.map((note) => note.id), ["chop-a", "chop-b"]);
+});
+
+test("drum pad assignments and MIDI patterns survive reopening", () => {
+  const session = {
+    id: "drum-session",
+    releaseId: "release-1",
+    title: "Beat",
+    tempo: 120,
+    timeSignature: "4/4",
+    tracks: [{
+      id: "drums",
+      name: "Kit",
+      type: "drum",
+      drumKit: {
+        patternLengthBars: 2,
+        patternStartBeat: 8,
+        pads: [
+          { id: "kick", name: "Kick", note: 36, sampleAssetId: "kick-file", gain: 0.9 },
+          { id: "snare", name: "Snare", note: 38, sampleAssetId: null, gain: 1 },
+        ],
+      },
+      notes: [
+        { id: "kick-1", pitch: 36, startBeat: 0, durationBeats: 0.25, velocity: 120 },
+        { id: "snare-1", pitch: 38, startBeat: 2, durationBeats: 0.25, velocity: 94 },
+      ],
+    }],
+  };
+  const reopened = migrateSongSession(JSON.parse(JSON.stringify(session)));
+  assert.deepEqual(reopened.tracks[0].drumKit, session.tracks[0].drumKit);
+  assert.deepEqual(reopened.tracks[0].notes, session.tracks[0].notes);
+});
+
+test("unsupported track state is retained with MIDI notes and a recovery notice", () => {
+  const migrated = migrateSongSession({
+    id: "unsupported-session",
+    releaseId: "release-1",
+    title: "Recovered track",
+    tempo: 120,
+    timeSignature: "4/4",
+    tracks: [{
+      id: "old-plugin",
+      name: "Old plugin",
+      type: "vst3",
+      pluginState: { manufacturer: "Example", preset: 7 },
+      clips: [],
+      notes: [{ id: "kept-note", pitch: 68, startBeat: 2, durationBeats: 1, velocity: 90 }],
+    }],
+  });
+  const track = migrated.tracks[0];
+  assert.equal(track.type, "unsupported");
+  assert.equal(track.notes[0].id, "kept-note");
+  assert.deepEqual(track.instrumentRecovery?.rawState, {
+    type: "vst3",
+    pluginState: { manufacturer: "Example", preset: 7 },
+  });
+  assert.match(track.instrumentRecovery?.message ?? "", /MIDI notes and source media were kept/i);
+});
+
+test("invalid drum state recovers with defaults while preserving raw state and MIDI", () => {
+  const migrated = migrateSongSession({
+    id: "damaged-drum",
+    releaseId: "release-1",
+    title: "Recovered kit",
+    tempo: 120,
+    timeSignature: "4/4",
+    tracks: [{
+      id: "drums",
+      name: "Broken kit",
+      type: "drum",
+      drumKit: { pads: [{ id: "dup", name: "One", note: 36, sampleAssetId: null, gain: 1 }, { id: "dup", name: "Two", note: 36, sampleAssetId: null, gain: 1 }] },
+      notes: [{ id: "kept-hit", pitch: 36, startBeat: 0, durationBeats: 0.25, velocity: 100 }],
+    }],
+  });
+  const track = migrated.tracks[0];
+  assert.equal(track.drumKit?.pads.length, 8);
+  assert.equal(track.notes[0].id, "kept-hit");
+  assert.deepEqual(track.instrumentRecovery?.rawState, {
+    pads: [
+      { id: "dup", name: "One", note: 36, sampleAssetId: null, gain: 1 },
+      { id: "dup", name: "Two", note: 36, sampleAssetId: null, gain: 1 },
+    ],
+  });
+});
