@@ -492,9 +492,9 @@ function formatDuration(seconds: number): string {
   return `${minutes}:${String(remaining).padStart(2, "0")}`;
 }
 
-export function SettingsDialog({ onClose }: { onClose: () => void }) {
+export function SettingsDialog({ onClose, onKeyboardShortcuts }: { onClose: () => void; onKeyboardShortcuts?: () => void }) {
   const [error, setError] = useState("");
-  const [section, setSection] = useState<"general" | "appearance">("general");
+  const [section, setSection] = useState<"general" | "appearance" | "shortcuts">("general");
   const dialogRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -543,8 +543,13 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         <div className="settings-tabs" role="tablist" aria-label="Settings sections">
           <button role="tab" aria-selected={section === "general"} className={section === "general" ? "active" : ""} onClick={() => setSection("general")}>General</button>
           <button role="tab" aria-selected={section === "appearance"} className={section === "appearance" ? "active" : ""} onClick={() => setSection("appearance")}>Appearance</button>
+          <button role="tab" aria-selected={section === "shortcuts"} className={section === "shortcuts" ? "active" : ""} onClick={() => setSection("shortcuts")}>Shortcuts</button>
         </div>
         {section === "appearance" ? <AppearanceSettings /> : <>
+          {section === "shortcuts" ? <>
+            <p className="settings-copy">Rebind workstation commands, inspect editor context, and check conflicting keys. Shortcut profiles stay on this computer.</p>
+            <button className="button button-quiet folder-button" onClick={onKeyboardShortcuts}>Open keyboard shortcuts</button>
+          </> : <>
           <p className="settings-copy">PRISM keeps your project library and imported media in your local application data folder. Your music stays on this device.</p>
           <button className="button button-quiet folder-button" onClick={() => void window.prism.openDataFolder().catch((cause) => setError(cause instanceof Error ? cause.message : "The data folder could not be opened."))}><FolderOpen size={16} /> Open PRISM data folder</button>
           <button className="button button-quiet folder-button" onClick={() => void createBackup()}>Back up PRISM library</button>
@@ -552,6 +557,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           {error && <div className="inline-error" role="alert">{error}</div>}
           {status && <div className="settings-copy" role="status">{status}</div>}
           <div className="settings-note"><span className="status-dot" /> Offline project library enabled</div>
+          </>}
         </>}
       </section>
     </div>

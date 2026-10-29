@@ -36,6 +36,11 @@ jobs:
       - name: Run PRISM audio and persistence tests
         run: pnpm --filter @workspace/prism-desktop run test
 
+      - name: Check portable project files
+        run: |
+          pnpm --filter @workspace/prism-desktop run test:projects
+          pnpm --filter @workspace/prism-desktop run test:arrangement
+
       - name: Check audio rendering, effects, and transport
         shell: pwsh
         run: |
@@ -45,6 +50,10 @@ jobs:
 
       - name: Build Windows installer
         run: pnpm --filter @workspace/prism-desktop run package:win
+
+      - name: Install and reopen the packaged Windows application
+        shell: pwsh
+        run: ./artifacts/prism-desktop/scripts/test-installed-windows.ps1
 
       - name: Upload installer
         uses: actions/upload-artifact@v4

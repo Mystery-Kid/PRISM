@@ -172,6 +172,43 @@ test("sampler sample references, settings, and MIDI patterns survive reopening",
   assert.deepEqual(migrated.tracks[0].notes.map((note) => note.id), ["chop-a", "chop-b"]);
 });
 
+test("MIDI clip groups and absolute-beat note events survive portable save migrations", () => {
+  const session = {
+    id: "midi-clip-session",
+    releaseId: "release-1",
+    title: "MIDI arrangement",
+    tempo: 110,
+    timeSignature: "4/4",
+    tracks: [{
+      id: "synth-1",
+      name: "Lead",
+      type: "instrument",
+      midiClips: [{ id: "clip-a", name: "Verse phrase", startBeat: 8, durationBeats: 4 }],
+      notes: [{ id: "note-a", pitch: 67, startBeat: 9.5, durationBeats: 0.75, velocity: 91, midiClipId: "clip-a" }],
+    }],
+  };
+  const opened = migrateSongSession(JSON.parse(JSON.stringify(session)));
+  assert.deepEqual(opened.tracks[0].midiClips, session.tracks[0].midiClips);
+  assert.deepEqual(opened.tracks[0].notes, session.tracks[0].notes);
+  const reopened = migrateSongSession(JSON.parse(JSON.stringify(opened)));
+  assert.deepEqual(reopened.tracks[0].midiClips, session.tracks[0].midiClips);
+  assert.deepEqual(reopened.tracks[0].notes, session.tracks[0].notes);
+  const repairedLegacyNote = migrateSongSession({
+    id: "orphaned-midi-session",
+    releaseId: "release-1",
+    title: "Legacy MIDI",
+    tempo: 110,
+    timeSignature: "4/4",
+    tracks: [{
+      id: "legacy-track",
+      name: "Lead",
+      type: "instrument",
+      notes: [{ id: "orphaned-note", pitch: 60, startBeat: 2, durationBeats: 1, velocity: 90, midiClipId: "missing-group" }],
+    }],
+  });
+  assert.equal(Object.hasOwn(repairedLegacyNote.tracks[0].notes[0], "midiClipId"), false);
+});
+
 test("drum pad assignments and MIDI patterns survive reopening", () => {
   const session = {
     id: "drum-session",

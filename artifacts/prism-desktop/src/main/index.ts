@@ -21,8 +21,8 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { createReadStream, createWriteStream } from "node:fs";
-import { extname, join } from "node:path";
+import { createReadStream, createWriteStream, mkdirSync } from "node:fs";
+import { basename, extname, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { Transform } from "node:stream";
@@ -36,6 +36,8 @@ import {
 import { createLibraryBackup, restoreLibraryBackup } from "./project-backup";
 import { writeAtomicText } from "./atomic-write";
 import { ThemeStore } from "./theme-store";
+import { importProjectFile, saveProjectFile } from "./project-file";
+import { runDesktopSmoke } from "./desktop-smoke";
 import {
   createEffectPresetFile,
   maxEffectPresetBytes,
@@ -47,6 +49,7 @@ import {
 import { normalizeEffectChain } from "../shared/effect-definitions";
 import { validateInstrumentTrackState } from "../shared/instrument-tracks";
 import { validateAudioRouting } from "../shared/audio-routing";
+import { validateMidiArrangement } from "../shared/midi-arrangement";
 import type {
   AudioClip,
   CreateReleaseInput,
@@ -90,6 +93,14 @@ type ActiveRecording = {
 type RecordingManifest = RecordingStart & { id: string; version: 1 };
 
 const productFolder = "PRISM";
+const smokeDirectory = process.argv.find((argument) => argument.startsWith("--prism-smoke-test="))?.split("=").slice(1).join("=");
+if (smokeDirectory) {
+  if (!isAbsolute(smokeDirectory) || !basename(smokeDirectory).startsWith("prism-smoke-")) {
+    throw new Error("Smoke checks require an absolute, isolated prism-smoke-* directory.");
+  }
+  mkdirSync(join(smokeDirectory, "userdata"), { recursive: true });
+  app.setPath("userData", join(smokeDirectory, "userdata"));
+}
 let mainWindow: BrowserWindow | null = null;
 let dataDirectory = "";
 let libraryFile = "";
@@ -442,6 +453,47 @@ function registerIpcHandlers(): void {
   };
 
   handle("prism:themes:get", () => themeStore.getState());
+  handle("prism:app:version", () => app.getVersion());
+  handle("prism:app:exit", () => { mainWindow?.close(); });
+  handle("prism:project:save-as", async (_event, input: SongSession) => {
+    // Export only validated, persisted data; the renderer flushes before invoking.
+    const current = getSession(input.id);
+    if (current.releaseId !== input.releaseId) throw new Error("The project identity is invalid.");
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      title: "Save Project As",
+      defaultPath: `${current.title.replace(/[<>:"/\\|?*]/g, "_")}.prism`,
+      filters: [{ name: "PRISM portable project", extensions: ["prism"] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    await saveProjectFile(result.filePath, getLibrary(), current, assetDirectory);
+    return result.filePath;
+  });
+  handle("prism:project:open", async () => {
+    if (activeRecordings.size) throw new Error("Stop recording before opening another project.");
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: "Open PRISM Project",
+      properties: ["openFile"],
+      filters: [{ name: "PRISM portable project", extensions: ["prism"] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    const imported = await importProjectFile(result.filePaths[0], assetDirectory);
+    const previous = getLibrary();
+    library = {
+      ...previous,
+      releases: [...imported.library.releases, ...previous.releases],
+      sessions: [...previous.sessions, ...imported.library.sessions],
+      assets: [...previous.assets, ...imported.library.assets],
+      effectPresets: [...previous.effectPresets, ...imported.library.effectPresets],
+    };
+    try {
+      await persistLibrary();
+    } catch (error) {
+      library = previous;
+      await Promise.all(imported.createdFiles.map((path) => unlink(path).catch(() => undefined)));
+      throw error;
+    }
+    return { release: imported.library.releases[0]!, session: imported.library.sessions[0]! };
+  });
   handle("prism:themes:claim", (_event, id) => themeStore.claim(id));
   handle("prism:themes:apply", (_event, id) => themeStore.apply(id));
   handle("prism:themes:repair", (_event, id) => themeStore.repair(id));
@@ -664,6 +716,11 @@ function registerIpcHandlers(): void {
         updated.loopRange.endSeconds <= updated.loopRange.startSeconds)
     ) throw new Error("The loop range is invalid.");
     for (const track of tracksWithValidatedEffects) {
+      validateMidiArrangement(track);
+      const previousTrack = current.tracks.find((entry) => entry.id === track.id);
+      if (previousTrack?.midiClips?.length && track.midiClips === undefined) {
+        throw new Error(`The MIDI arrangement for "${track.name}" is missing. The saved project was not changed.`);
+      }
       const instrumentValidation = validateInstrumentTrackState(track);
       if (instrumentValidation) throw new Error(instrumentValidation);
       if (
@@ -1220,49 +1277,9 @@ async function handleMediaRequest(request: Request): Promise<Response> {
 }
 
 function createApplicationMenu(): void {
-  const menu = Menu.buildFromTemplate([
-    {
-      label: "PRISM",
-      submenu: [
-        { role: "about", label: "About PRISM" },
-        { type: "separator" },
-        { role: "quit", label: "Quit PRISM" },
-      ],
-    },
-    {
-      label: "File",
-      submenu: [
-        { label: "Open PRISM data folder", click: () => void shell.openPath(join(app.getPath("userData"), productFolder)) },
-        { type: "separator" },
-        { role: "close", label: "Close window" },
-      ],
-    },
-    {
-      label: "Edit",
-      submenu: [
-        { role: "undo" },
-        { role: "redo" },
-        { type: "separator" },
-        { role: "cut" },
-        { role: "copy" },
-        { role: "paste" },
-        { role: "selectAll" },
-      ],
-    },
-    {
-      label: "View",
-      submenu: [
-        { role: "reload" },
-        { role: "toggleDevTools" },
-        { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
-        { role: "togglefullscreen" },
-      ],
-    },
-  ]);
-  Menu.setApplicationMenu(menu);
+  // The themed, accessible renderer menus share the DAW command dispatcher.
+  // Native Edit roles/accelerators would otherwise intercept or double-run it.
+  Menu.setApplicationMenu(null);
 }
 
 function createWindow(): void {
@@ -1284,6 +1301,11 @@ function createWindow(): void {
   });
 
   mainWindow.once("ready-to-show", () => mainWindow?.show());
+  if (smokeDirectory) {
+    mainWindow.webContents.once("did-finish-load", () => {
+      void runDesktopSmoke(mainWindow!, smokeDirectory, process.argv.includes("--prism-smoke-reopen"));
+    });
+  }
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("will-navigate", (event, url) => {
     const devUrl = process.env.ELECTRON_RENDERER_URL;

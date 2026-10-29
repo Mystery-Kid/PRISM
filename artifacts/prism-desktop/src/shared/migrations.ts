@@ -9,6 +9,7 @@ import type {
   InstrumentState,
   JsonValue,
   MidiNote,
+  MidiClip,
   SamplerState,
   ProjectAsset,
   Release,
@@ -268,6 +269,18 @@ function migrateNote(value: unknown): MidiNote | null {
     startBeat: Math.max(0, finite(note.startBeat, 0)),
     durationBeats: Math.max(0.0625, finite(note.durationBeats, 1)),
     velocity: Math.max(1, Math.min(127, Math.round(finite(note.velocity, 96)))),
+    ...(typeof note.midiClipId === "string" ? { midiClipId: note.midiClipId } : {}),
+  };
+}
+
+function migrateMidiClip(value: unknown): MidiClip | null {
+  const clip = record(value);
+  if (typeof clip.id !== "string" || !clip.id.trim()) return null;
+  return {
+    id: clip.id,
+    name: typeof clip.name === "string" && clip.name.trim() ? clip.name : "MIDI Clip",
+    startBeat: Math.max(0, finite(clip.startBeat, 0)),
+    durationBeats: Math.max(0.25, finite(clip.durationBeats, 4)),
   };
 }
 
@@ -387,6 +400,16 @@ function migrateTrack(value: unknown, index: number): Track {
   const notes = Array.isArray(track.notes)
     ? track.notes.map(migrateNote).filter((note): note is MidiNote => note !== null)
     : [];
+  const midiClips = Array.isArray(track.midiClips)
+    ? track.midiClips.map(migrateMidiClip).filter((clip): clip is MidiClip => clip !== null)
+    : undefined;
+  const knownMidiClipIds = new Set(midiClips?.map((clip) => clip.id) ?? []);
+  const safeNotes = notes.map((note) => {
+    if (!note.midiClipId || knownMidiClipIds.has(note.midiClipId)) return note;
+    const ungrouped = { ...note };
+    delete ungrouped.midiClipId;
+    return ungrouped;
+  });
   const colorIndex = index % trackColors.length;
   const savedRecovery = migrateRecovery(track.instrumentRecovery);
   let instrumentRecovery = savedRecovery;
@@ -436,7 +459,8 @@ function migrateTrack(value: unknown, index: number): Track {
     solo: track.solo === true,
     recordArmed: track.recordArmed === true,
     clips,
-    notes,
+    notes: safeNotes,
+    ...(midiClips ? { midiClips } : {}),
     instrument: type === "instrument" ? migrateInstrument(track.instrument) : null,
     sampler,
     drumKit,

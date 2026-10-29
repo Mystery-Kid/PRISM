@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Check, LoaderCircle, RotateCw } from "lucide-react";
 import { ORIGINAL_ID, STARRY_ID } from "@shared/themes";
 import { useThemes } from "../themes/ThemeProvider";
-import starryPreview from "../assets/starry-preview.svg";
+import starryPreview from "../assets/starry-moon.png";
 import originalPreview from "../assets/original-preview.svg";
 
 export function AppearanceSettings() {
@@ -25,7 +25,7 @@ export function AppearanceSettings() {
   if (!state) return <div className="theme-load-error" role="alert"><p>{error || "Appearance settings are unavailable."}</p><button className="button button-quiet" onClick={() => void reload()}><RotateCw size={14} /> Retry</button></div>;
   const themes = [
     { id: ORIGINAL_ID, name: "Original", description: "PRISM's familiar neutral studio palette.", preview: originalPreview, claimed: true },
-    ...(state.claimedThemeIds.includes(STARRY_ID) ? [{ id: STARRY_ID, name: "Starry", description: "Midnight navy, soft blue accents, and a quiet starfield.", preview: starryPreview, claimed: true }] : []),
+    ...(state.claimedThemeIds.includes(STARRY_ID) ? [{ id: STARRY_ID, name: "Starry", description: "Midnight navy, moonlight, and the exact Starry teal accent.", preview: starryPreview, claimed: true }] : []),
   ];
   return <div className="appearance-section">
     <div className="appearance-intro"><span className="eyebrow">STUDIO SURFACE</span><h3>Appearance</h3><p>Choose the room you want to work in. Changes are saved on this device.</p></div>

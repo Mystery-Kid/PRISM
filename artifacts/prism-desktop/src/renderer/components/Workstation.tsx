@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import {
-  AudioLines, Circle, CircleStop, Download, Headphones, Music2, Pause, Play, Plus,
-  Keyboard, Redo2, Save, Settings2, SkipBack, SlidersHorizontal, Sparkles, Trash2, Undo2, Volume2, VolumeX, X,
+  AudioLines, Circle, CircleStop, Headphones, Music2, Pause, Play, Plus,
+  Keyboard, Redo2, Save, SkipBack, SlidersHorizontal, Sparkles, Trash2, Undo2, Volume2, VolumeX, X,
+  PanelBottom,
 } from "lucide-react";
 import type {
   AudioClip,
   DrumPadState,
   InstrumentState,
+  MidiClip,
   MidiNote,
   ProjectAsset,
   SongSession,
@@ -38,6 +40,7 @@ import {
   shortcutStorageKey,
   type ShortcutBindings,
   type ShortcutCommandId,
+  type ShortcutContext,
 } from "../shortcuts";
 import {
   createSessionHistory,
@@ -53,12 +56,19 @@ type WorkstationProps = {
   onBack: () => void;
   onHome: () => void;
   onSettings: () => void;
+  onNewProject: () => Promise<void>;
+  onOpenProject: (release: import("@shared/types").Release, session: SongSession) => Promise<void>;
 };
 type Meter = { peak: number; rms: number };
 type ContextMenuTarget =
   | { kind: "clip"; clipId: string; trackId: string }
+  | { kind: "midiClip"; midiClipId: string; trackId: string }
   | { kind: "note"; noteId: string; trackId: string };
 type ContextMenuState = ContextMenuTarget & { x: number; y: number };
+type ClipboardEntry =
+  | { kind: "audio"; trackId: string; value: AudioClip }
+  | { kind: "midi"; trackId: string; value: { clip: MidiClip; notes: MidiNote[] } }
+  | { kind: "note"; trackId: string; value: MidiNote };
 const colors = ["#d7a568", "#77a99e", "#a58ac4", "#c77979", "#829fc2"];
 const emptySnapshot: AudioEngineSnapshot = {
   status: "stopped",
@@ -76,7 +86,7 @@ const emptySnapshot: AudioEngineSnapshot = {
 const historyLimit = 50;
 type EditTool = "select" | "draw" | "erase" | "split";
 
-export function Workstation({ session: initialSession, releaseTitle, onBack, onHome, onSettings }: WorkstationProps) {
+export function Workstation({ session: initialSession, releaseTitle, onBack, onHome, onSettings, onNewProject, onOpenProject }: WorkstationProps) {
   const [session, setSession] = useState(initialSession);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
   const [saveError, setSaveError] = useState("");
@@ -85,7 +95,9 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const [snapshot, setSnapshot] = useState<AudioEngineSnapshot>(emptySnapshot);
   const [selectedTrack, setSelectedTrack] = useState(initialSession.tracks[0]?.id ?? "");
   const [selectedClip, setSelectedClip] = useState<string | null>(null);
+  const [selectedMidiClip, setSelectedMidiClip] = useState<string | null>(null);
   const [selectedNote, setSelectedNote] = useState<string | null>(null);
+  const [allItemsSelected, setAllItemsSelected] = useState(false);
   const [recoveryDismissedTrackId, setRecoveryDismissedTrackId] = useState("");
   const [dismissedSnapshotError, setDismissedSnapshotError] = useState("");
   const [zoom, setZoom] = useState(1);
@@ -100,6 +112,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState("");
   const [panel, setPanel] = useState<"mixer" | "clip" | "piano" | "sampler" | "drums" | "effects" | "routing" | "devices">("mixer");
+  const [activeEditor, setActiveEditor] = useState<ShortcutContext>("arrangement");
   const [selectedEffectBusId, setSelectedEffectBusId] = useState("");
   const [notice, setNotice] = useState("");
   const [historyAvailability, setHistoryAvailability] = useState({ canUndo: false, canRedo: false });
@@ -108,25 +121,37 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const [shortcutBindings, setShortcutBindings] = useState(shortcutSettings.bindings);
   const [editTool, setEditTool] = useState<EditTool>("select");
   const [openCommandMenu, setOpenCommandMenu] = useState<"edit" | "view" | null>(null);
+  const [openTopMenu, setOpenTopMenu] = useState<"File" | "Edit" | "Insert" | "View" | "Transport" | "Help" | null>(null);
+  const [dockHeight, setDockHeight] = useState(() => Number(localStorage.getItem("prism.dockHeight")) || 220);
+  const [inspectorVisible, setInspectorVisible] = useState(() => localStorage.getItem("prism.inspectorVisible") !== "false");
+  const [clipboard, setClipboard] = useState<ClipboardEntry[]>([]);
+  const [version, setVersion] = useState("");
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const pianoGridRef = useRef<HTMLDivElement>(null);
   const history = useRef(createSessionHistory(initialSession));
   const commandExecutor = useRef<(commandId: ShortcutCommandId) => void>(() => {});
   const shortcutStateRef = useRef({
-    bindings: shortcutBindings, panel, dialogOpen: shortcutDialogOpen,
-    menuOpen: openCommandMenu, contextMenu,
+    bindings: shortcutBindings, panel, activeEditor, dialogOpen: shortcutDialogOpen,
+    menuOpen: openCommandMenu, topMenuOpen: openTopMenu, contextMenu,
   });
   shortcutStateRef.current = {
-    bindings: shortcutBindings, panel, dialogOpen: shortcutDialogOpen,
-    menuOpen: openCommandMenu, contextMenu,
+    bindings: shortcutBindings, panel, activeEditor, dialogOpen: shortcutDialogOpen,
+    menuOpen: openCommandMenu, topMenuOpen: openTopMenu, contextMenu,
   };
   const platform = getShortcutPlatform(navigator.platform || navigator.userAgent);
   const beatSeconds = secondsPerBeat(session.tempo, session.timeSignature);
   const barSeconds = beatSeconds * beatsPerBar(session.timeSignature);
   const pixelsPerSecond = 54 * zoom;
   const clips = useMemo(() => session.tracks.flatMap((track) => track.clips.map((clip) => ({ track, clip }))), [session.tracks]);
-  const duration = Math.max(16, ...clips.map(({ clip }) => clip.startSeconds + clip.durationSeconds), ...session.tracks.flatMap((track) => track.notes.map((note) => (note.startBeat + note.durationBeats) * beatSeconds)));
+  const duration = Math.max(
+    16,
+    ...clips.map(({ clip }) => clip.startSeconds + clip.durationSeconds),
+    ...session.tracks.flatMap((track) => [
+      ...track.notes.map((note) => (note.startBeat + note.durationBeats) * beatSeconds),
+      ...(track.midiClips ?? []).map((clip) => (clip.startBeat + clip.durationBeats) * beatSeconds),
+    ]),
+  );
   const selected = clips.find(({ clip }) => clip.id === selectedClip);
   const selectedTrackData = session.tracks.find((track) => track.id === selectedTrack);
   const selectedInstrument = session.tracks.find((track) => track.id === selectedTrack && track.type === "instrument");
@@ -136,7 +161,11 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     track.id === selectedTrack &&
     ["instrument", "sampler", "drum", "unsupported"].includes(track.type),
   );
-  const selectedPatternNote = selectedPatternTrack?.notes.find((note) => note.id === selectedNote);
+  const selectedMidiClipData = selectedPatternTrack?.midiClips?.find((clip) => clip.id === selectedMidiClip);
+  const pianoNotes = selectedPatternTrack?.notes.filter((note) =>
+    selectedMidiClipData ? note.midiClipId === selectedMidiClipData.id : !note.midiClipId,
+  ) ?? [];
+  const selectedPatternNote = pianoNotes.find((note) => note.id === selectedNote);
   const recoveryMessage = selectedTrackData?.id !== recoveryDismissedTrackId
     ? selectedTrackData?.instrumentRecovery?.message ?? ""
     : "";
@@ -157,9 +186,50 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       setSession(initialSession);
       setSelectedTrack(initialSession.tracks[0]?.id ?? "");
     }
+    setPanel("mixer");
+    setActiveEditor("arrangement");
     setSelectedClip(null);
+    setSelectedMidiClip(null);
     setSelectedNote(null);
+    setClipboard([]);
     setSnapshot({ ...emptySnapshot });
+  }, [initialSession.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const normalizedTracks = initialSession.tracks.map((track) => {
+      if (track.notes.length === 0) return track;
+      const existingClips = track.midiClips ?? [];
+      const existingIds = new Set(existingClips.map((clip) => clip.id));
+      const ungrouped = track.notes.filter((note) => !note.midiClipId || !existingIds.has(note.midiClipId));
+      if (ungrouped.length === 0) return track;
+      const ungroupedIds = new Set(ungrouped.map((note) => note.id));
+      const startBeat = Math.min(...ungrouped.map((note) => note.startBeat));
+      const endBeat = Math.max(...ungrouped.map((note) => note.startBeat + note.durationBeats));
+      const clip: MidiClip = {
+        id: crypto.randomUUID(),
+        name: existingClips.length ? `MIDI Clip ${existingClips.length + 1}` : "MIDI Clip",
+        startBeat,
+        durationBeats: Math.max(1, endBeat - startBeat),
+      };
+      return {
+        ...track,
+        midiClips: [...existingClips, clip],
+        notes: track.notes.map((note) => ungroupedIds.has(note.id) ? { ...note, midiClipId: clip.id } : note),
+      };
+    });
+    const availableMidiClipIds = normalizedTracks.flatMap((track) => track.midiClips ?? []).map((clip) => clip.id);
+    setSelectedMidiClip((current) => current && availableMidiClipIds.includes(current)
+      ? current
+      : availableMidiClipIds[0] ?? null);
+    if (normalizedTracks.some((track, index) => track !== initialSession.tracks[index])) {
+      setSession((current) => current.id === initialSession.id
+        ? { ...current, tracks: normalizedTracks }
+        : current);
+    }
+    void window.prism.getAppVersion()
+      .then((value) => { if (!cancelled) setVersion(value); }).catch(() => undefined);
+    return () => { cancelled = true; };
   }, [initialSession.id]);
 
   useEffect(() => {
@@ -367,9 +437,21 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       durationBeats,
       velocity: 92,
     };
-    updateTrack(track.id, { notes: [...track.notes, note] });
+    let midiClipId = selectedMidiClip;
+    let midiClips = track.midiClips ?? [];
+    if (!midiClipId || !midiClips.some((clip) => clip.id === midiClipId)) {
+      const start = Math.floor(startBeat / 4) * 4;
+      const clip: MidiClip = { id: crypto.randomUUID(), name: "MIDI Clip", startBeat: start, durationBeats: 4 };
+      midiClipId = clip.id;
+      midiClips = [...midiClips, clip];
+      setSelectedMidiClip(clip.id);
+    }
+    const targetClip = midiClips.find((clip) => clip.id === midiClipId)!;
+    note.startBeat = Math.max(targetClip.startBeat, Math.min(note.startBeat, targetClip.startBeat + targetClip.durationBeats - 0.125));
+    note.durationBeats = Math.max(.125, Math.min(durationBeats, targetClip.startBeat + targetClip.durationBeats - note.startBeat));
+    note.midiClipId = midiClipId;
+    updateTrack(track.id, { midiClips, notes: [...track.notes, note] });
     setSelectedNote(note.id);
-    setPanel("piano");
   };
   const previewSampleNote = (trackId: string, pitch: number) => safe(async () => {
     if (engine) await engine.previewInstrumentNote(session, trackId, pitch);
@@ -383,6 +465,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     });
     setRecoveryDismissedTrackId(trackId);
     setPanel("piano");
+    setActiveEditor("piano");
     setNotice("Recovered as a built-in synth. The original unsupported state and MIDI notes remain saved.");
   };
   const importSampleForTrack = (trackId: string, padId?: string) => safe(async () => {
@@ -449,6 +532,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
           : type === "sampler" ? `Sampler ${number}` : `Drums ${number}`,
       type, color: colors[session.tracks.length % colors.length], volume: 0.82, pan: 0,
       muted: false, solo: false, recordArmed: false, clips: [], notes: [],
+      midiClips: [],
       instrument: type === "instrument" ? { waveform: "triangle", attack: 0.015, decay: 0.12, sustain: 0.62, release: 0.18 } : null,
       sampler: type === "sampler" ? createDefaultSamplerState() : null,
       drumKit: type === "drum" ? createDefaultDrumKit() : null,
@@ -457,15 +541,66 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     };
     setSession((current) => ({ ...current, tracks: [...current.tracks, track] }));
     setSelectedTrack(track.id);
-    setPanel(type === "instrument" ? "piano"
-      : type === "sampler" ? "sampler"
+    setPanel(type === "sampler" ? "sampler"
         : type === "drum" ? "drums" : "mixer");
+    setActiveEditor(activeShortcutContext(type === "sampler" ? "sampler" : type === "drum" ? "drums" : "mixer"));
+    return track;
   };
-  const selectTrack = (track: Track) => {
+  const createMidiClip = (trackId = selectedTrack) => {
+    const track = session.tracks.find((item) => item.id === trackId);
+    if (!track || !["instrument", "sampler", "drum"].includes(track.type)) {
+      setNotice("Add or select an instrument, sampler, or drum track first.");
+      return;
+    }
+    const beat = snapshot.position / beatSeconds;
+    const startBeat = snap ? Math.max(0, Math.round(beat / 4) * 4) : Math.max(0, beat);
+    const clip: MidiClip = { id: crypto.randomUUID(), name: "MIDI Clip", startBeat, durationBeats: 4 };
+    updateTrack(trackId, { midiClips: [...(track.midiClips ?? []), clip] });
+    setSelectedTrack(trackId);
+    setSelectedMidiClip(clip.id);
+    setSelectedClip(null);
+    setSelectedNote(null);
+    setActiveEditor("arrangement");
+    setNotice("MIDI clip added. Double-click it or use Open MIDI Editor to edit its notes.");
+  };
+  const updateMidiClip = (trackId: string, clipId: string, update: Partial<MidiClip>) => {
+    const track = session.tracks.find((item) => item.id === trackId);
+    const clip = track?.midiClips?.find((item) => item.id === clipId);
+    if (!track || !clip) return;
+    const nextStart = Math.max(0, update.startBeat ?? clip.startBeat);
+    const delta = nextStart - clip.startBeat;
+    const nextDuration = Math.max(.25, update.durationBeats ?? clip.durationBeats);
+    const endBeat = nextStart + nextDuration;
+    updateTrack(trackId, {
+      midiClips: (track.midiClips ?? []).map((item) => item.id === clipId
+        ? { ...item, ...update, startBeat: nextStart, durationBeats: nextDuration }
+        : item),
+      notes: track.notes.flatMap((note) => {
+        if (note.midiClipId !== clipId) return [note];
+        const moved = { ...note, startBeat: Math.max(0, note.startBeat + delta) };
+        if (moved.startBeat >= endBeat) return [];
+        return [{ ...moved, durationBeats: Math.max(.125, Math.min(moved.durationBeats, endBeat - moved.startBeat)) }];
+      }),
+    });
+  };
+  const openMidiEditor = (trackId = selectedTrack, clipId = selectedMidiClip) => {
+    const track = session.tracks.find((item) => item.id === trackId);
+    if (!track || !clipId || !track.midiClips?.some((clip) => clip.id === clipId)) {
+      setNotice("Select a MIDI clip to open its editor.");
+      return;
+    }
+    setSelectedTrack(trackId);
+    setSelectedMidiClip(clipId);
+    setSelectedClip(null);
+    setPanel("piano");
+    setActiveEditor("piano");
+  };
+  const selectArrangementTrack = (track: Track) => {
     setSelectedTrack(track.id);
-    setPanel(track.type === "sampler" ? "sampler"
-      : track.type === "drum" ? "drums"
-        : track.type === "instrument" || track.type === "unsupported" ? "piano" : "mixer");
+    setSelectedMidiClip(track.midiClips?.[0]?.id ?? null);
+    setSelectedClip(null);
+    setSelectedNote(null);
+    setActiveEditor("arrangement");
   };
   const removeTrack = (trackId: string) => {
     if (recording) return;
@@ -507,6 +642,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     } : track) }));
     setSelectedClip(clip.id);
     setPanel("clip");
+    setActiveEditor("arrangement");
   });
   const toggleRecord = () => safe(async () => {
     if (!engine) return;
@@ -520,6 +656,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         setSession((current) => appendRecordedClip(current, clip, trackId));
         setSelectedClip(clip.id);
         setPanel("clip");
+        setActiveEditor("arrangement");
         setRecording(false);
       },
       onError: (error) => { setEngineError(error.message); setRecording(false); },
@@ -531,9 +668,46 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   });
   const saveNow = async () => {
     setSaveStatus("saving");
-    try { await window.prism.saveSession(session); setSaveStatus("saved"); setSaveError(""); }
+    try { await flushBeforeProjectAction(); setSaveStatus("saved"); setSaveError(""); }
     catch (cause) { setSaveStatus("error"); setSaveError(cause instanceof Error ? cause.message : "Session could not be saved."); }
   };
+  const flushBeforeProjectAction = async () => {
+    setSaveStatus("saving");
+    setSaveError("");
+    try {
+      let current = session;
+      if (engine?.snapshot().recording) {
+        const take = await engine.stopRecording();
+        if (take) current = appendRecordedClip(current, take.clip, take.trackId);
+        setSession(current);
+      }
+      await window.prism.saveSession(current);
+      setSaveStatus("saved");
+      return current;
+    } catch (cause) {
+      setSaveStatus("error");
+      setSaveError(cause instanceof Error ? cause.message : "Session could not be saved.");
+      throw cause;
+    }
+  };
+  const saveProjectAs = () => safe(async () => {
+    const current = await flushBeforeProjectAction();
+    const path = await window.prism.saveProjectAs(current);
+    if (path) setNotice(`Portable project saved: ${path}`);
+  });
+  const openProject = () => safe(async () => {
+    await flushBeforeProjectAction();
+    const opened = await window.prism.openProject();
+    if (opened) await onOpenProject(opened.release, opened.session);
+  });
+  const createNewProject = () => safe(async () => {
+    await flushBeforeProjectAction();
+    await onNewProject();
+  });
+  const exitProject = () => safe(async () => {
+    await flushBeforeProjectAction();
+    await window.prism.requestExit();
+  });
   const undo = () => {
     if (recording) return;
     history.current = recordSessionSnapshot(history.current, session, historyLimit);
@@ -571,6 +745,17 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     setSession((current) => ({ ...current, tracks: current.tracks.map((track) => ({ ...track, clips: track.clips.filter((clip) => clip.id !== clipId) })) }));
     setSelectedClip(null);
   };
+  const removeMidiClip = (trackId: string, clipId: string) => {
+    setSession((current) => ({ ...current, tracks: current.tracks.map((track) => track.id === trackId
+      ? {
+        ...track,
+        midiClips: (track.midiClips ?? []).filter((clip) => clip.id !== clipId),
+        notes: track.notes.filter((note) => note.midiClipId !== clipId),
+      }
+      : track) }));
+    if (selectedMidiClip === clipId) setSelectedMidiClip(null);
+    setSelectedNote(null);
+  };
   const removeNote = (noteId: string) => {
     setSession((current) => ({
       ...current,
@@ -598,6 +783,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     setSelectedTrack(source.track.id);
     setSelectedNote(copy.id);
     setPanel("piano");
+    setActiveEditor("piano");
   };
   const nudgeSelectedNote = (beatDelta: number, pitchDelta: number) => {
     if (!selectedNote) return;
@@ -646,6 +832,22 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     setSelectedClip(copy.id);
     setSelectedTrack(source.track.id);
   };
+  const duplicateMidiClip = (clipId = selectedMidiClip) => {
+    if (!clipId) return;
+    const source = session.tracks.map((track) => ({ track, clip: track.midiClips?.find((item) => item.id === clipId) })).find((item) => item.clip);
+    if (!source?.clip) return;
+    const clip: MidiClip = { ...source.clip, id: crypto.randomUUID(), startBeat: source.clip.startBeat + source.clip.durationBeats };
+    const offset = clip.startBeat - source.clip.startBeat;
+    setSession((current) => ({ ...current, tracks: current.tracks.map((track) => track.id === source.track.id
+      ? {
+        ...track,
+        midiClips: [...(track.midiClips ?? []), clip],
+        notes: [...track.notes, ...track.notes.filter((note) => note.midiClipId === source.clip!.id).map((note) => ({ ...note, id: crypto.randomUUID(), midiClipId: clip.id, startBeat: note.startBeat + offset }))],
+      }
+      : track) }));
+    setSelectedTrack(source.track.id);
+    setSelectedMidiClip(clip.id);
+  };
   const duplicateClip = () => {
     duplicateClipById();
   };
@@ -671,6 +873,38 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     setSelectedClip(right.id);
     setSelectedTrack(track.id);
   };
+  const splitMidiClipById = (clipId = selectedMidiClip) => {
+    if (!clipId) return;
+    const source = session.tracks.map((track) => ({ track, clip: track.midiClips?.find((item) => item.id === clipId) })).find((item) => item.clip);
+    if (!source?.clip) return;
+    const { clip, track } = source;
+    const atBeat = snapshot.position / beatSeconds;
+    const cutBeat = snap ? Math.round(atBeat / .25) * .25 : atBeat;
+    if (cutBeat <= clip.startBeat + .125 || cutBeat >= clip.startBeat + clip.durationBeats - .125) {
+      setNotice("Place the playhead inside the selected MIDI clip to split it.");
+      return;
+    }
+    const rightClip: MidiClip = {
+      ...clip, id: crypto.randomUUID(), name: `${clip.name} (2)`,
+      startBeat: cutBeat, durationBeats: clip.startBeat + clip.durationBeats - cutBeat,
+    };
+    const leftDuration = cutBeat - clip.startBeat;
+    const notes: MidiNote[] = [];
+    for (const note of track.notes) {
+      if (note.midiClipId !== clip.id) { notes.push(note); continue; }
+      const noteEnd = note.startBeat + note.durationBeats;
+      if (note.startBeat >= cutBeat) notes.push({ ...note, midiClipId: rightClip.id });
+      else if (noteEnd > cutBeat) {
+        notes.push({ ...note, durationBeats: cutBeat - note.startBeat });
+        notes.push({ ...note, id: crypto.randomUUID(), midiClipId: rightClip.id, startBeat: cutBeat, durationBeats: noteEnd - cutBeat });
+      } else notes.push(note);
+    }
+    updateTrack(track.id, {
+      midiClips: [...(track.midiClips ?? []).map((item) => item.id === clip.id ? { ...item, durationBeats: leftDuration } : item), rightClip],
+      notes,
+    });
+    setSelectedMidiClip(rightClip.id);
+  };
   const splitClip = () => {
     splitClipById();
   };
@@ -690,17 +924,28 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       return;
     }
     const startBeat = snap ? Math.round(beat * 4) / 4 : beat;
+    let midiClipId = selectedMidiClip;
+    let midiClips = track.midiClips ?? [];
+    if (!midiClipId || !midiClips.some((clip) => clip.id === midiClipId)) {
+      const startBeat = Math.floor(beat / 4) * 4;
+      const clip: MidiClip = { id: crypto.randomUUID(), name: "MIDI Clip", startBeat, durationBeats: 4 };
+      midiClipId = clip.id;
+      midiClips = [...midiClips, clip];
+      setSelectedMidiClip(clip.id);
+    }
+    const activeClip = midiClips.find((clip) => clip.id === midiClipId)!;
     const note: MidiNote = {
       id: crypto.randomUUID(),
       pitch: Math.round(clamp(pitch, 0, 127)),
-      startBeat: Math.max(0, startBeat),
-      durationBeats: 1,
+      startBeat: Math.max(activeClip.startBeat, Math.min(startBeat, activeClip.startBeat + activeClip.durationBeats - 0.25)),
+      durationBeats: Math.max(.125, Math.min(1, activeClip.startBeat + activeClip.durationBeats - Math.max(activeClip.startBeat, Math.min(startBeat, activeClip.startBeat + activeClip.durationBeats - 0.25)))),
       velocity: 90,
+      midiClipId,
     };
     setSession((current) => ({
       ...current,
       tracks: current.tracks.map((item) => item.id === track.id
-        ? { ...item, notes: [...item.notes, note] }
+        ? { ...item, midiClips, notes: [...item.notes, note] }
         : item),
     }));
     setSelectedTrack(track.id);
@@ -718,9 +963,13 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
 
   const executeCommand = (commandId: ShortcutCommandId) => {
     setOpenCommandMenu(null);
+    setOpenTopMenu(null);
     switch (commandId) {
       case "transport.toggle": void play(); break;
       case "transport.stop": void stop(); break;
+      case "transport.record": void toggleRecord(); break;
+      case "transport.loop": toggleLoop(); break;
+      case "transport.metronome": setSession((current) => ({ ...current, metronomeEnabled: !current.metronomeEnabled })); break;
       case "transport.home":
         void safe(async () => {
           if (recording) await engine?.stopRecording();
@@ -732,20 +981,175 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       case "transport.stepBack": seek(snapshot.position - beatSeconds / 4); break;
       case "transport.stepForward": seek(snapshot.position + beatSeconds / 4); break;
       case "project.save": void saveNow(); break;
+      case "project.saveAs": void saveProjectAs(); break;
+      case "project.export": void exportWav(); break;
       case "project.library": void leave(onHome); break;
+      case "project.new": void createNewProject(); break;
+      case "project.open": void openProject(); break;
+      case "project.exit": void exitProject(); break;
       case "edit.undo": undo(); break;
       case "edit.redo": redo(); break;
+      case "edit.cut":
+      case "edit.copy": {
+        const pianoContext = activeEditor === "piano";
+        let entries: ClipboardEntry[] = [];
+        if (allItemsSelected && pianoContext && selectedPatternTrack) {
+          entries = pianoNotes.map((note) => ({ kind: "note", trackId: selectedPatternTrack.id, value: { ...note } }));
+        } else if (allItemsSelected) {
+          entries = session.tracks.flatMap((track) => [
+            ...track.clips.map((clip) => ({ kind: "audio" as const, trackId: track.id, value: { ...clip } })),
+            ...(track.midiClips ?? []).map((clip) => ({
+              kind: "midi" as const, trackId: track.id,
+              value: { clip: { ...clip }, notes: track.notes.filter((note) => note.midiClipId === clip.id).map((note) => ({ ...note })) },
+            })),
+          ]);
+        } else if (pianoContext && selectedPatternTrack) {
+          const note = selectedPatternTrack.notes.find((item) => item.id === selectedNote);
+          if (note) entries = [{ kind: "note", trackId: selectedPatternTrack.id, value: { ...note } }];
+        } else {
+          const audio = selectedClip ? clips.find(({ clip }) => clip.id === selectedClip) : undefined;
+          const midi = selectedMidiClip
+            ? session.tracks.flatMap((track) => (track.midiClips ?? []).map((clip) => ({ track, clip }))).find(({ clip }) => clip.id === selectedMidiClip)
+            : undefined;
+          if (audio) entries = [{ kind: "audio", trackId: audio.track.id, value: { ...audio.clip } }];
+          else if (midi) entries = [{
+            kind: "midi", trackId: midi.track.id,
+            value: { clip: { ...midi.clip }, notes: midi.track.notes.filter((note) => note.midiClipId === midi.clip.id).map((note) => ({ ...note })) },
+          }];
+        }
+        setClipboard(entries);
+        if (commandId === "edit.cut" && entries.length > 0) {
+          if (allItemsSelected && pianoContext && selectedPatternTrack) {
+            const ids = new Set(entries.map((entry) => entry.kind === "note" ? entry.value.id : ""));
+            updateTrack(selectedPatternTrack.id, { notes: selectedPatternTrack.notes.filter((note) => !ids.has(note.id)) });
+          } else if (allItemsSelected) {
+            setSession((current) => ({ ...current, tracks: current.tracks.map((track) => ({ ...track, clips: [], notes: [], midiClips: [] })) }));
+          } else if (entries[0].kind === "note") removeNote(entries[0].value.id);
+          else if (entries[0].kind === "audio") removeClip(entries[0].value.id);
+          else removeMidiClip(entries[0].trackId, entries[0].value.clip.id);
+          setAllItemsSelected(false);
+        }
+        break;
+      }
+      case "edit.paste": {
+        if (!clipboard.length) break;
+        const sourceStarts = clipboard.map((entry) => entry.kind === "audio"
+          ? entry.value.startSeconds
+          : entry.kind === "midi" ? entry.value.clip.startBeat * beatSeconds : entry.value.startBeat * beatSeconds);
+        const origin = Math.min(...sourceStarts);
+        let firstAudioId: string | null = null;
+        let firstMidiId: string | null = null;
+        let firstNoteId: string | null = null;
+        setSession((current) => ({
+          ...current,
+          tracks: current.tracks.map((track) => {
+            const entries = clipboard.filter((entry) => entry.trackId === track.id);
+            if (!entries.length) return track;
+            let clips = [...track.clips];
+            let midiClips = [...(track.midiClips ?? [])];
+            let notes = [...track.notes];
+            let pasteNoteClip = midiClips.find((clip) => clip.id === selectedMidiClip) ?? null;
+            for (const entry of entries) {
+              const offsetSeconds = sourceStarts[clipboard.indexOf(entry)] - origin;
+              if (entry.kind === "audio") {
+                const copy = { ...entry.value, id: crypto.randomUUID(), startSeconds: snapshot.position + offsetSeconds };
+                clips.push(copy); firstAudioId ??= copy.id;
+              } else if (entry.kind === "midi") {
+                const clipId = crypto.randomUUID();
+                const copy: MidiClip = {
+                  ...entry.value.clip, id: clipId,
+                  startBeat: snapshot.position / beatSeconds + offsetSeconds / beatSeconds,
+                };
+                midiClips.push(copy); firstMidiId ??= clipId;
+                const noteShift = copy.startBeat - entry.value.clip.startBeat;
+                notes.push(...entry.value.notes.map((note) => ({
+                  ...note, id: crypto.randomUUID(), midiClipId: clipId,
+                  startBeat: note.startBeat + noteShift,
+                })));
+              } else {
+                if (!pasteNoteClip) {
+                  const startBeat = snapshot.position / beatSeconds;
+                  const maxOffsetBeats = Math.max(0, ...entries
+                    .filter((item): item is Extract<ClipboardEntry, { kind: "note" }> => item.kind === "note")
+                    .map((item) => item.value.startBeat * beatSeconds - origin));
+                  pasteNoteClip = {
+                    id: crypto.randomUUID(),
+                    name: "MIDI Clip",
+                    startBeat,
+                    durationBeats: Math.max(4, maxOffsetBeats + entry.value.durationBeats),
+                  };
+                  midiClips.push(pasteNoteClip);
+                  firstMidiId ??= pasteNoteClip.id;
+                }
+                const clipEnd = pasteNoteClip.startBeat + pasteNoteClip.durationBeats;
+                const proposedStart = snapshot.position / beatSeconds + offsetSeconds / beatSeconds;
+                const noteStart = Math.max(pasteNoteClip.startBeat, Math.min(proposedStart, clipEnd - .125));
+                const copy: MidiNote = {
+                  ...entry.value, id: crypto.randomUUID(),
+                  startBeat: noteStart,
+                  durationBeats: Math.max(.125, Math.min(entry.value.durationBeats, clipEnd - noteStart)),
+                  midiClipId: pasteNoteClip.id,
+                };
+                notes.push(copy); firstNoteId ??= copy.id;
+              }
+            }
+            return { ...track, clips, midiClips, notes };
+          }),
+        }));
+        if (firstAudioId) setSelectedClip(firstAudioId);
+        if (firstMidiId) setSelectedMidiClip(firstMidiId);
+        if (firstNoteId) setSelectedNote(firstNoteId);
+        setAllItemsSelected(false);
+        break;
+      }
+      case "edit.selectAll":
+        setAllItemsSelected(true);
+        if (activeEditor === "piano") {
+          setSelectedNote(pianoNotes[0]?.id ?? null);
+        } else {
+          setSelectedClip(clips[0]?.clip.id ?? null);
+          setSelectedMidiClip(session.tracks.flatMap((track) => track.midiClips ?? [])[0]?.id ?? null);
+        }
+        break;
+      case "edit.clearSelection":
+        setAllItemsSelected(false); setSelectedClip(null); setSelectedMidiClip(null); setSelectedNote(null);
+        break;
       case "edit.duplicate":
-        if (activeShortcutContext(panel) === "piano") duplicateNote();
+        if (allItemsSelected && activeEditor === "piano" && selectedPatternTrack) {
+          const copies = pianoNotes.map((note) => ({
+            ...note, id: crypto.randomUUID(),
+            startBeat: note.startBeat + Math.max(.25, note.durationBeats),
+          }));
+          updateTrack(selectedPatternTrack.id, { notes: [...selectedPatternTrack.notes, ...copies] });
+          setSelectedNote(copies[0]?.id ?? null); setAllItemsSelected(false);
+        } else if (allItemsSelected) {
+          session.tracks.forEach((track) => {
+            track.clips.forEach((clip) => duplicateClipById(clip.id));
+            (track.midiClips ?? []).forEach((clip) => duplicateMidiClip(clip.id));
+          });
+          setAllItemsSelected(false);
+        } else if (activeEditor === "piano") duplicateNote();
+        else if (selectedMidiClip) duplicateMidiClip();
         else duplicateClip();
         break;
       case "edit.delete":
-        if (activeShortcutContext(panel) === "piano") {
+        if (allItemsSelected && activeEditor === "piano" && selectedPatternTrack) {
+          const selectedIds = new Set(pianoNotes.map((note) => note.id));
+          updateTrack(selectedPatternTrack.id, { notes: selectedPatternTrack.notes.filter((note) => !selectedIds.has(note.id)) });
+          setSelectedNote(null); setAllItemsSelected(false);
+        } else if (allItemsSelected) {
+          setSession((current) => ({ ...current, tracks: current.tracks.map((track) => ({ ...track, clips: [], notes: [], midiClips: [] })) }));
+          setSelectedClip(null); setSelectedMidiClip(null); setSelectedNote(null); setAllItemsSelected(false);
+        } else if (activeEditor === "piano") {
           if (selectedNote) removeNote(selectedNote);
+        } else if (selectedMidiClip) {
+          const owner = session.tracks.find((track) => track.midiClips?.some((item) => item.id === selectedMidiClip));
+          if (owner) removeMidiClip(owner.id, selectedMidiClip);
         } else if (selectedClip) removeClip(selectedClip);
         break;
       case "edit.split":
-        if (activeShortcutContext(panel) === "piano") splitMidiNote();
+        if (activeEditor === "piano") splitMidiNote();
+        else if (selectedMidiClip) splitMidiClipById();
         else splitClip();
         break;
       case "edit.addNote":
@@ -770,10 +1174,57 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       case "view.zoomIn": setZoom((current) => clamp(current + 0.1, 0.5, 2.4)); break;
       case "view.zoomOut": setZoom((current) => clamp(current - 0.1, 0.5, 2.4)); break;
       case "view.zoomReset": setZoom(1); break;
-      case "panel.mixer": setPanel("mixer"); break;
-      case "panel.piano": setPanel("piano"); break;
-      case "panel.effects": setSelectedEffectBusId(""); setPanel("effects"); break;
-      case "panel.routing": setPanel("routing"); break;
+      case "view.fit": {
+        const selectedAudio = activeEditor === "arrangement"
+          ? clips.find(({ clip }) => clip.id === selectedClip)?.clip
+          : undefined;
+        const selectedMidi = session.tracks
+          .flatMap((track) => (track.midiClips ?? []).map((clip) => ({ track, clip })))
+          .find(({ clip }) => clip.id === selectedMidiClip)?.clip;
+        const selectedNoteData = selectedPatternTrack?.notes.find((note) => note.id === selectedNote);
+        const allStartSeconds = activeEditor === "piano" && allItemsSelected && pianoNotes.length
+          ? Math.min(...pianoNotes.map((note) => note.startBeat * beatSeconds))
+          : allItemsSelected && activeEditor === "arrangement"
+          ? Math.min(...session.tracks.flatMap((track) => [
+              ...track.clips.map((clip) => clip.startSeconds),
+              ...(track.midiClips ?? []).map((clip) => clip.startBeat * beatSeconds),
+            ]))
+            : null;
+        const startSeconds = allStartSeconds
+          ?? (activeEditor === "piano" && selectedNoteData ? selectedNoteData.startBeat * beatSeconds : undefined)
+          ?? selectedAudio?.startSeconds
+          ?? (selectedMidi?.startBeat !== undefined ? selectedMidi.startBeat * beatSeconds : undefined)
+          ?? 0;
+        const endSeconds = activeEditor === "piano" && allItemsSelected && pianoNotes.length
+          ? Math.max(...pianoNotes.map((note) => (note.startBeat + note.durationBeats) * beatSeconds))
+          : allItemsSelected && activeEditor === "arrangement"
+            ? Math.max(0, ...session.tracks.flatMap((track) => [
+              ...track.clips.map((clip) => clip.startSeconds + clip.durationSeconds),
+              ...(track.midiClips ?? []).map((clip) => (clip.startBeat + clip.durationBeats) * beatSeconds),
+            ]))
+            : activeEditor === "piano" && selectedNoteData
+              ? (selectedNoteData.startBeat + selectedNoteData.durationBeats) * beatSeconds
+              : selectedAudio
+              ? selectedAudio.startSeconds + selectedAudio.durationSeconds
+              : selectedMidi
+                ? (selectedMidi.startBeat + selectedMidi.durationBeats) * beatSeconds
+                : selectedNoteData
+                  ? (selectedNoteData.startBeat + selectedNoteData.durationBeats) * beatSeconds
+                  : duration;
+        const targetDuration = Math.max(1, endSeconds - startSeconds);
+        const available = Math.max(12, (timelineRef.current?.clientWidth ?? 900) - 260);
+        const nextZoom = clamp(available / Math.max(1, targetDuration * 54), 0.5, 2.4);
+        setZoom(nextZoom);
+        window.requestAnimationFrame(() => timelineRef.current?.scrollTo({
+          left: Math.max(0, 240 + startSeconds * 54 * nextZoom - 40),
+          behavior: "smooth",
+        }));
+        break;
+      }
+      case "panel.mixer": setPanel("mixer"); setActiveEditor("mixer"); break;
+      case "panel.piano": setPanel("piano"); setActiveEditor("piano"); break;
+      case "panel.effects": setSelectedEffectBusId(""); setPanel("effects"); setActiveEditor("effects"); break;
+      case "panel.routing": setPanel("routing"); setActiveEditor("routing"); break;
       case "mixer.previousTrack": moveTrackSelection(-1); break;
       case "mixer.nextTrack": moveTrackSelection(1); break;
       case "effects.previousTrack": setSelectedEffectBusId(""); moveTrackSelection(-1); break;
@@ -786,6 +1237,21 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   useEffect(() => {
     if (shortcutSettings.error) setNotice(shortcutSettings.error);
   }, []);
+
+  useEffect(() => {
+    const open = () => setShortcutDialogOpen(true);
+    window.addEventListener("prism:open-shortcuts", open);
+    return () => window.removeEventListener("prism:open-shortcuts", open);
+  }, []);
+
+  useEffect(() => {
+    if (!openTopMenu) return;
+    const closeOutside = (event: globalThis.PointerEvent) => {
+      if (event.target instanceof Element && !event.target.closest(".workstation-command-menus")) setOpenTopMenu(null);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, [openTopMenu]);
 
   const applyShortcutProfile = (next: ShortcutBindings) => {
     if (findShortcutConflicts(next).length > 0) {
@@ -807,9 +1273,10 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || (event.target instanceof Element && event.target.closest('[role="dialog"]'))) return;
       if (shortcutStateRef.current.dialogOpen) return;
-      if (event.key === "Escape" && (shortcutStateRef.current.menuOpen || shortcutStateRef.current.contextMenu)) {
+      if (event.key === "Escape" && (shortcutStateRef.current.menuOpen || shortcutStateRef.current.topMenuOpen || shortcutStateRef.current.contextMenu)) {
         event.preventDefault();
         setOpenCommandMenu(null);
+        setOpenTopMenu(null);
         setContextMenu(null);
         return;
       }
@@ -817,7 +1284,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       const element = event.target as Element | null;
       if (event.key === " " && typeof element?.closest === "function" &&
           element.closest("button, a, [role='button']")) return;
-      const context = activeShortcutContext(shortcutStateRef.current.panel);
+      const context = shortcutStateRef.current.activeEditor;
       const command = shortcutRegistry.find((item) =>
         commandIsActive(item, context) &&
         matchesShortcut(event, shortcutStateRef.current.bindings[item.id], platform),
@@ -845,54 +1312,145 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       : { enabled: true, startSeconds: current.loopRange?.startSeconds ?? 0, endSeconds: current.loopRange?.endSeconds ?? Math.max(barSeconds * 4, 8) },
   }));
 
+  const menuAction = (action: string) => {
+    if (action.startsWith("insert.")) {
+      if (action === "insert.audio") addTrack("audio");
+      else if (action === "insert.instrument") addTrack("instrument");
+      else if (action === "insert.drum") addTrack("drum");
+      else if (action === "insert.sampler") addTrack("sampler");
+      else if (action === "insert.import") void importAudio();
+      else if (action === "insert.midi") {
+        const currentTrack = selectedPatternTrack && ["instrument", "sampler", "drum"].includes(selectedPatternTrack.type)
+          ? selectedPatternTrack
+          : null;
+        const previousPanel = panel;
+        const track = currentTrack ?? addTrack("instrument");
+        if (!currentTrack) setPanel(previousPanel);
+        setActiveEditor("arrangement");
+        createMidiClip(track.id);
+      }
+      return;
+    }
+    if (action === "preferences") { onSettings(); setOpenTopMenu(null); return; }
+    if (action === "about") { setNotice(`PRISM${version ? ` ${version}` : ""} · Offline music workstation`); setOpenTopMenu(null); return; }
+    executeCommand(action as ShortcutCommandId);
+  };
+  const menuEntries: Record<NonNullable<typeof openTopMenu>, Array<{ label: string; action?: string; command?: ShortcutCommandId; disabled?: boolean; shortcut?: string; separator?: boolean; checked?: boolean }>> = {
+    File: [
+      { label: "New Project", command: "project.new", shortcut: "" },
+      { label: "Open Project", command: "project.open", shortcut: "" },
+      { separator: true, label: "" },
+      { label: "Save Project", command: "project.save" },
+      { label: "Save Project As…", command: "project.saveAs" },
+      { separator: true, label: "" },
+      { label: "Export Audio", command: "project.export", disabled: recording || busy === "export" },
+      { label: "Exit", command: "project.exit" },
+    ],
+    Edit: [
+      { label: "Undo", command: "edit.undo", disabled: !historyAvailability.canUndo || recording },
+      { label: "Redo", command: "edit.redo", disabled: !historyAvailability.canRedo || recording },
+      { separator: true, label: "" },
+      { label: "Cut", command: "edit.cut", disabled: !["arrangement", "piano"].includes(activeEditor) || !(selectedClip || selectedMidiClip || selectedNote || allItemsSelected) },
+      { label: "Split", command: "edit.split", disabled: !["arrangement", "piano"].includes(activeEditor) || !(selectedClip || selectedMidiClip || selectedNote) },
+      { label: "Copy", command: "edit.copy", disabled: !["arrangement", "piano"].includes(activeEditor) || !(selectedClip || selectedMidiClip || selectedNote || allItemsSelected) },
+      { label: "Paste", command: "edit.paste", disabled: !["arrangement", "piano"].includes(activeEditor) || clipboard.length === 0 },
+      { label: "Delete", command: "edit.delete", disabled: !["arrangement", "piano"].includes(activeEditor) || !(selectedClip || selectedMidiClip || selectedNote || allItemsSelected) },
+      { label: "Duplicate", command: "edit.duplicate", disabled: !["arrangement", "piano"].includes(activeEditor) || !(selectedClip || selectedMidiClip || selectedNote || allItemsSelected) },
+      { label: "Select All", command: "edit.selectAll", disabled: activeEditor === "piano" ? pianoNotes.length === 0 : activeEditor !== "arrangement" || session.tracks.every((track) => !track.clips.length && !track.midiClips?.length) },
+      { label: "Clear Selection", command: "edit.clearSelection", disabled: !["arrangement", "piano"].includes(activeEditor) || !(selectedClip || selectedMidiClip || selectedNote || allItemsSelected) },
+      { separator: true, label: "" },
+      { label: "Preferences…", action: "preferences" },
+    ],
+    Insert: [
+      { label: "Audio Track", action: "insert.audio" },
+      { label: "MIDI / Instrument Track", action: "insert.instrument" },
+      { label: "Drum Track", action: "insert.drum" },
+      { label: "Sampler Track", action: "insert.sampler" },
+      { separator: true, label: "" },
+      { label: "MIDI Clip", action: "insert.midi" },
+      { label: "Import Audio…", action: "insert.import" },
+    ],
+    View: [
+      { label: `${inspectorVisible ? "Hide" : "Show"} Track Inspector`, action: "view.inspector", checked: inspectorVisible },
+      { label: "Mixer", command: "panel.mixer", checked: panel === "mixer" },
+      { label: "Piano Roll / MIDI Editor", command: "panel.piano", checked: panel === "piano" },
+      { label: "Effects", command: "panel.effects", checked: panel === "effects" },
+      { label: "Routing", command: "panel.routing", checked: panel === "routing" },
+      { separator: true, label: "" },
+      { label: "Zoom In", command: "view.zoomIn" },
+      { label: "Zoom Out", command: "view.zoomOut" },
+      { label: "Reset Zoom", command: "view.zoomReset" },
+      { label: "Fit Project / Selection", command: "view.fit", disabled: !["arrangement", "piano"].includes(activeEditor) },
+    ],
+    Transport: [
+      { label: snapshot.status === "playing" ? "Pause" : "Play", command: "transport.toggle" },
+      { label: "Stop", command: "transport.stop" },
+      { label: "Return to Project Start", command: "transport.home" },
+      { separator: true, label: "" },
+      { label: recording ? "Stop Recording" : "Record", command: "transport.record" },
+      { label: `${session.loopRange?.enabled ? "Disable" : "Enable"} Loop`, command: "transport.loop", checked: !!session.loopRange?.enabled },
+      { label: `${session.metronomeEnabled ? "Disable" : "Enable"} Metronome`, command: "transport.metronome", checked: session.metronomeEnabled },
+    ],
+    Help: [
+      { label: `PRISM${version ? ` ${version}` : ""}`, disabled: true },
+      { separator: true, label: "" },
+      { label: "Keyboard Shortcuts…", command: "help.shortcuts" },
+      { label: "About PRISM", action: "about" },
+    ],
+  };
+  const renderMenu = (menu: NonNullable<typeof openTopMenu>) => <div className="top-menu-surface" role="menu" aria-label={`${menu} commands`}>
+    {menuEntries[menu].map((item, index) => item.separator
+      ? <div key={`separator-${index}`} className="menu-separator" role="separator" />
+      : <button key={`${menu}-${item.label}`} type="button" role={item.checked === undefined ? "menuitem" : item.action === "view.inspector" ? "menuitemcheckbox" : "menuitemradio"} aria-checked={item.checked} data-testid={`menuitem-${menu.toLowerCase()}-${index}`} className={`top-menu-item ${item.checked ? "checked" : ""}`} disabled={item.disabled} onClick={() => {
+        if (item.action === "view.inspector") {
+          setInspectorVisible((visible) => { const next = !visible; localStorage.setItem("prism.inspectorVisible", String(next)); return next; });
+          setOpenTopMenu(null);
+        } else if (item.command) menuAction(item.command);
+        else if (item.action) menuAction(item.action);
+      }}>
+        <span className="menu-check">{item.checked ? "✓" : ""}</span><span>{item.label}</span>
+        {item.command && shortcutBindings[item.command] && <kbd>{formatShortcut(shortcutBindings[item.command], platform)}</kbd>}
+      </button>)}
+  </div>;
+
   return <main className="workstation">
     <header className="workstation-header">
-      <div className="workstation-brand">
-        <button className="mini-brand" data-testid="button-prism-home" title="PRISM library" onClick={() => void leave(onHome)}><img className="workstation-logo" src={prismLogo} alt="PRISM" /><b>PRISM</b></button>
-        <span className="crumb-divider">/</span>
-        <button className="workstation-crumb" data-testid="button-release-back" onClick={() => void leave(onBack)}>{releaseTitle}</button>
-        <span className="crumb-divider">/</span><strong className="current-song" data-testid="text-song-title">{session.title}</strong>
-      </div>
-      <nav className="workstation-command-menus" aria-label="Workstation menus">
-        <button className="command-menu-trigger workstation-settings-trigger" type="button" onClick={onSettings} aria-label="Open settings" title="Settings"><Settings2 size={14} /><span>Settings</span></button>
-        <div className="command-menu-wrap">
-          <button className="command-menu-trigger" type="button" data-testid="menu-edit" aria-haspopup="menu" aria-expanded={openCommandMenu === "edit"} onClick={() => setOpenCommandMenu((current) => current === "edit" ? null : "edit")}>Edit</button>
-          {openCommandMenu === "edit" && <div className="workstation-command-menu" role="menu">
-            <button role="menuitem" onClick={() => executeCommand("edit.undo")} disabled={!historyAvailability.canUndo || recording}>Undo <kbd>{formatShortcut(shortcutBindings["edit.undo"], platform)}</kbd></button>
-            <button role="menuitem" onClick={() => executeCommand("edit.redo")} disabled={!historyAvailability.canRedo || recording}>Redo <kbd>{formatShortcut(shortcutBindings["edit.redo"], platform)}</kbd></button>
-            <hr />
-            <button role="menuitem" onClick={() => executeCommand("edit.duplicate")}>Duplicate</button>
-            <button role="menuitem" onClick={() => executeCommand("edit.delete")}>Delete</button>
-            <button role="menuitem" onClick={() => executeCommand("edit.split")}>Split selection at playhead</button>
-            <button role="menuitem" onClick={() => executeCommand("edit.toggleSnap")}>{snap ? "Disable snap" : "Enable snap"}</button>
-            <hr />
-            <button role="menuitem" onClick={() => executeCommand("tool.select")}>Select tool</button>
-            <button role="menuitem" onClick={() => executeCommand("tool.draw")}>Draw tool</button>
-            <button role="menuitem" onClick={() => executeCommand("tool.erase")}>Erase tool</button>
-            <button role="menuitem" onClick={() => executeCommand("tool.split")}>Split tool</button>
-          </div>}
-        </div>
-        <div className="command-menu-wrap">
-          <button className="command-menu-trigger" type="button" data-testid="menu-view" aria-haspopup="menu" aria-expanded={openCommandMenu === "view"} onClick={() => setOpenCommandMenu((current) => current === "view" ? null : "view")}>View</button>
-          {openCommandMenu === "view" && <div className="workstation-command-menu" role="menu">
-            <button role="menuitem" onClick={() => executeCommand("view.zoomIn")}>Zoom in</button>
-            <button role="menuitem" onClick={() => executeCommand("view.zoomOut")}>Zoom out</button>
-            <button role="menuitem" onClick={() => executeCommand("view.zoomReset")}>Reset zoom</button>
-            <hr />
-            <button role="menuitem" onClick={() => executeCommand("panel.mixer")}>Mixer</button>
-            <button role="menuitem" onClick={() => executeCommand("panel.piano")}>Piano roll</button>
-            <button role="menuitem" onClick={() => executeCommand("panel.effects")}>Effects</button>
-            <button role="menuitem" onClick={() => executeCommand("panel.routing")}>Routing</button>
-            <hr />
-            <button role="menuitem" onClick={() => executeCommand("help.shortcuts")}><Keyboard size={13} /> Keyboard shortcuts</button>
-          </div>}
-        </div>
+      <nav className="workstation-command-menus" aria-label="Application menus" onKeyDown={(event) => {
+        if (event.key === "Escape") { event.preventDefault(); setOpenTopMenu(null); setOpenCommandMenu(null); }
+        if ((event.key === "ArrowDown" || event.key === "ArrowUp") && openTopMenu) {
+          event.preventDefault();
+          const menu = event.currentTarget.querySelector('[role="menu"]');
+          const items = Array.from(menu?.querySelectorAll<HTMLElement>('[role^="menuitem"]:not(:disabled)') ?? []);
+          const current = items.indexOf(document.activeElement as HTMLElement);
+          const index = current < 0 ? (event.key === "ArrowDown" ? 0 : items.length - 1)
+            : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+          items[index]?.focus();
+        }
+        if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+          const order = ["File", "Edit", "Insert", "View", "Transport", "Help"] as const;
+          const current = order.indexOf(openTopMenu ?? "File");
+          const delta = event.key === "ArrowRight" ? 1 : -1;
+          const next = order[(current + delta + order.length) % order.length];
+          setOpenTopMenu(next);
+          event.currentTarget.querySelector<HTMLButtonElement>(`[data-menu="${next}"]`)?.focus();
+          event.preventDefault();
+        }
+      }}>
+        <button className="mini-brand" type="button" aria-label="PRISM project library" onClick={() => void leave(onHome)}><img className="workstation-logo" src={prismLogo} alt="" /><b>PRISM</b></button>
+        {(["File", "Edit", "Insert", "View", "Transport", "Help"] as const).map((menu) => <div className="top-menu-wrap" key={menu}>
+          <button className={`top-menu-trigger ${openTopMenu === menu ? "active" : ""}`} data-menu={menu} data-testid={`menu-${menu.toLowerCase()}`} type="button" aria-haspopup="menu" aria-expanded={openTopMenu === menu} onClick={() => {
+            setOpenTopMenu((current) => current === menu ? null : menu);
+            setOpenCommandMenu(null);
+          }} onFocus={() => { if (openTopMenu) setOpenTopMenu(menu); }}>{menu}</button>
+          {openTopMenu === menu && renderMenu(menu)}
+        </div>)}
       </nav>
+      <span className="header-divider" />
+      <strong className="current-song" data-testid="text-song-title">{session.title}</strong>
       <div className={`save-indicator ${saveStatus}`} data-testid="status-session-save" aria-live="polite" title={saveError || "Stored on this device"}>
         <span className="save-dot" />{saveStatus === "saving" ? "Saving" : saveStatus === "error" ? "Save error" : "Saved locally"}
       </div>
-      <button className="icon-button" data-testid="button-save-session" title="Save session" onClick={() => void saveNow()}><Save size={16} /></button>
-      <button className="button button-subtle export-button" data-testid="button-export-wav" title="48 kHz, 16-bit stereo WAV; maximum 10 minutes" onClick={() => void exportWav()} disabled={busy === "export" || recording}><Download size={14} />{busy === "export" ? "Rendering…" : "Export WAV"}</button>
+      <button className="icon-button" data-testid="button-save-session" title="Save project" onClick={() => void saveNow()}><Save size={16} /></button>
     </header>
 
     <section className="transport-bar">
@@ -913,6 +1471,10 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
           <label className="loop-bound">Out<input data-testid="input-loop-end" type="number" min=".1" step=".1" value={session.loopRange.endSeconds} onChange={(event) => setSession((current) => current.loopRange ? ({ ...current, loopRange: { ...current.loopRange, endSeconds: Math.max(current.loopRange.startSeconds + .1, Number(event.target.value)) } }) : current)} /></label>
         </>}
       </div>
+      <div className="transport-master">
+        <span>MASTER</span><MeterBar meter={snapshot.meters.master} id="transport-master" />
+        <input data-testid="input-transport-master-volume" aria-label="Master output level" type="range" min="0" max="1.5" step=".01" value={session.masterVolume} onChange={(event) => setSession((current) => ({ ...current, masterVolume: Number(event.target.value) }))} />
+      </div>
     </section>
 
     {(engineError || saveError || recoveryMessage || visibleSnapshotError || notice) && <div className={`workstation-notice ${engineError || saveError || recoveryMessage || visibleSnapshotError ? "error-notice" : ""}`} role={engineError || saveError || recoveryMessage || visibleSnapshotError ? "alert" : "status"} data-testid="status-workstation-message">
@@ -921,7 +1483,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       <button data-testid="button-dismiss-message" aria-label="Dismiss message" onClick={() => { setEngineError(""); setSaveError(""); setNotice(""); setRecoveryDismissedTrackId(selectedTrack); setDismissedSnapshotError(snapshot.error ?? ""); }}><X size={14} /></button>
     </div>}
 
-    <section className="arrangement">
+    <section className="arrangement" onPointerDown={() => setActiveEditor("arrangement")}>
       <div className="arrangement-toolbar">
         <div className="arrangement-tools"><span className="panel-label">ARRANGEMENT</span>
           <div className="edit-tool-group" role="group" aria-label="Editing tool">
@@ -938,10 +1500,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
           <button className="icon-button compact" data-testid="button-undo" aria-label="Undo edit" title={`Undo (${formatShortcut(shortcutBindings["edit.undo"], platform)})`} disabled={!historyAvailability.canUndo || recording} onClick={undo}><Undo2 size={14} /></button>
           <button className="icon-button compact" data-testid="button-redo" aria-label="Redo edit" title={`Redo (${formatShortcut(shortcutBindings["edit.redo"], platform)})`} disabled={!historyAvailability.canRedo || recording} onClick={redo}><Redo2 size={14} /></button>
           <button className="button button-subtle" data-testid="button-import-audio" onClick={() => void importAudio()}><Plus size={14} /> Import audio</button>
-          <button className="button button-subtle" data-testid="button-add-audio-track" onClick={() => addTrack("audio")}><Plus size={14} /> Audio track</button>
-          <button className="button button-subtle" data-testid="button-add-instrument-track" onClick={() => addTrack("instrument")}><Music2 size={14} /> Instrument</button>
-          <button className="button button-subtle" data-testid="button-add-sampler-track" onClick={() => addTrack("sampler")}><AudioLines size={14} /> Sampler</button>
-          <button className="button button-subtle" data-testid="button-add-drum-track" onClick={() => addTrack("drum")}><Music2 size={14} /> Drums</button>
+           <button className="button button-subtle" data-testid="button-add-midi-clip" onClick={() => createMidiClip()}><Music2 size={13} /> MIDI Clip</button>
           <label className="snap-toggle"><input data-testid="input-snap" type="checkbox" checked={snap} onChange={(event) => setSnap(event.target.checked)} /> Snap</label>
           <button className="icon-button compact" type="button" data-testid="button-open-shortcuts" aria-label="Keyboard shortcuts" title="Keyboard shortcuts" onClick={() => setShortcutDialogOpen(true)}><Keyboard size={14} /></button>
         </div>
@@ -950,7 +1509,15 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       <div className="timeline-scroll" ref={timelineRef}>
         <div className="timeline-content" style={{ width: `${timelineWidth}px` }}>
           <div className="timeline-ruler-row">
-            <div className="track-column-heading">TRACKS</div>
+            <div className="track-column-heading"><span>TRACKS</span><details className="track-add-menu">
+              <summary data-testid="button-add-track" aria-label="Add track">+ <span>Add Track</span></summary>
+              <div className="track-add-options" role="menu" aria-label="Add track type">
+                <button role="menuitem" data-testid="add-track-audio" onClick={() => addTrack("audio")}>Audio Track</button>
+                <button role="menuitem" data-testid="add-track-instrument" onClick={() => addTrack("instrument")}>MIDI / Instrument</button>
+                <button role="menuitem" data-testid="add-track-drum" onClick={() => addTrack("drum")}>Drum Track</button>
+                <button role="menuitem" data-testid="add-track-sampler" onClick={() => addTrack("sampler")}>Sampler Track</button>
+              </div>
+            </details></div>
             <div className="timeline-ruler" style={{ width: `${timelineWidth - 240}px` }} onClick={(event) => {
               const bounds = event.currentTarget.getBoundingClientRect();
               seek(Math.max(0, (event.clientX - bounds.left) / pixelsPerSecond));
@@ -962,7 +1529,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
           {session.tracks.map((track, index) => <div className={`timeline-track-row ${selectedTrack === track.id ? "track-selected" : ""}`} key={track.id}>
             <div className="track-controls">
               <span className="track-color" style={{ background: track.color || colors[index % colors.length] }} />
-              <button className="track-name" data-testid={`button-rename-track-${track.id}`} title="Rename track" onClick={() => { const name = window.prompt("Track name", track.name); if (name?.trim()) updateTrack(track.id, { name: name.trim() }); selectTrack(track); }}>{track.name}</button>
+              <button className="track-name" data-testid={`button-rename-track-${track.id}`} title="Rename track" onClick={() => { const name = window.prompt("Track name", track.name); if (name?.trim()) updateTrack(track.id, { name: name.trim() }); selectArrangementTrack(track); }}>{track.name}</button>
               <small className="track-kind">{track.type === "instrument" ? "INSTRUMENT" : track.type === "sampler" ? "SAMPLER" : track.type === "drum" ? "DRUM KIT" : track.type === "unsupported" ? "UNSUPPORTED" : "AUDIO"}</small>
               <div className="track-buttons">
                 <button className={`track-toggle ${track.muted ? "active" : ""}`} data-testid={`button-mute-${track.id}`} aria-label={`${track.muted ? "Unmute" : "Mute"} ${track.name}`} aria-pressed={track.muted} onClick={() => updateTrack(track.id, { muted: !track.muted })}>{track.muted ? <VolumeX size={12} /> : <Volume2 size={12} />}</button>
@@ -970,12 +1537,13 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
                 {track.type === "audio" && <button className={`track-toggle arm-toggle ${track.recordArmed ? "armed" : ""}`} data-testid={`button-arm-${track.id}`} aria-label={`${track.recordArmed ? "Disarm" : "Arm"} ${track.name}`} aria-pressed={track.recordArmed} onClick={() => updateTrack(track.id, { recordArmed: !track.recordArmed })}>R</button>}
                 <button className="track-toggle danger-hover" data-testid={`button-delete-track-${track.id}`} aria-label={`Delete ${track.name}`} title="Remove track" disabled={recording} onClick={() => removeTrack(track.id)}><Trash2 size={12} /></button>
               </div>
+              <div className="track-meter-wrap"><MeterBar meter={snapshot.meters[track.id]} id={`track-${track.id}`} /><span className="track-db">{snapshot.meters[track.id]?.peak ? `${(20 * Math.log10(snapshot.meters[track.id].peak)).toFixed(1)} dB` : "−∞ dB"}</span></div>
               <label className="track-level"><span>VOL</span><input data-testid={`input-track-volume-${track.id}`} aria-label={`${track.name} volume`} type="range" min="0" max="1.25" step=".01" value={track.volume} onChange={(event) => updateTrack(track.id, { volume: Number(event.target.value) })} /><small>{Math.round(track.volume * 100)}</small></label>
               <label className="track-pan"><span>PAN</span><input data-testid={`input-track-pan-${track.id}`} aria-label={`${track.name} pan`} type="range" min="-1" max="1" step=".01" value={track.pan} onChange={(event) => updateTrack(track.id, { pan: Number(event.target.value) })} /></label>
             </div>
             <div className={`timeline-lane tool-${editTool}`} onClick={(event) => {
-              if ((event.target as HTMLElement).closest(".audio-clip, .midi-note")) return;
-              selectTrack(track);
+              if ((event.target as HTMLElement).closest(".audio-clip, .midi-clip, .midi-note")) return;
+              selectArrangementTrack(track);
               const bounds = event.currentTarget.getBoundingClientRect();
               const seconds = Math.max(0, (event.clientX - bounds.left) / pixelsPerSecond);
               if (editTool === "draw") {
@@ -986,8 +1554,11 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
               if (editTool !== "erase") seek(seconds);
             }}>
               {Array.from({ length: Math.ceil(duration / barSeconds) + 2 }, (_, index) => <div key={index} className="lane-gridline" style={{ left: `${index * barSeconds * pixelsPerSecond}px` }} />)}
-              {track.clips.map((clip) => <ClipBlock key={clip.id} clip={clip} selected={selectedClip === clip.id} pps={pixelsPerSecond} snapStep={beatSeconds / 4} snap={snap} tool={editTool} onSelect={() => { setSelectedTrack(track.id); setSelectedClip(clip.id); setPanel("clip"); }} onUpdate={(update) => updateClip(track.id, clip.id, update)} onDelete={() => removeClip(clip.id)} onSplit={() => splitClipById(clip.id)} onContextMenu={(x, y) => { setSelectedTrack(track.id); setSelectedClip(clip.id); setPanel("clip"); setContextMenu({ kind: "clip", clipId: clip.id, trackId: track.id, x, y }); }} />)}
-              {["instrument", "sampler", "drum", "unsupported"].includes(track.type) && track.notes.map((note) => <div key={note.id} className={`midi-note ${selectedNote === note.id ? "selected" : ""} ${editTool === "erase" ? "eraser-target" : ""}`} data-testid={`note-${note.id}`} style={{ left: `${note.startBeat * beatSeconds * pixelsPerSecond}px`, width: `${Math.max(12, note.durationBeats * beatSeconds * pixelsPerSecond)}px`, top: `${Math.max(3, (127 - note.pitch) * .62)}px` }} onClick={(event) => { event.stopPropagation(); if (editTool === "erase") { removeNote(note.id); return; } if (editTool === "split") { splitMidiNote(note.id); return; } setSelectedTrack(track.id); setSelectedNote(note.id); setPanel("piano"); }} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setSelectedTrack(track.id); setSelectedNote(note.id); setPanel("piano"); setContextMenu({ kind: "note", noteId: note.id, trackId: track.id, x: event.clientX, y: event.clientY }); }} title={`${pitchName(note.pitch)} · velocity ${note.velocity}`} />)}
+              {track.clips.map((clip) => <ClipBlock key={clip.id} clip={clip} selected={selectedClip === clip.id || allItemsSelected} pps={pixelsPerSecond} snapStep={beatSeconds / 4} snap={snap} tool={editTool} onSelect={() => { setAllItemsSelected(false); setSelectedTrack(track.id); setSelectedClip(clip.id); setSelectedMidiClip(null); setSelectedNote(null); setPanel("clip"); setActiveEditor("arrangement"); }} onUpdate={(update) => updateClip(track.id, clip.id, update)} onDelete={() => removeClip(clip.id)} onSplit={() => splitClipById(clip.id)} onContextMenu={(x, y) => { setSelectedTrack(track.id); setSelectedClip(clip.id); setSelectedNote(null); setPanel("clip"); setActiveEditor("arrangement"); setContextMenu({ kind: "clip", clipId: clip.id, trackId: track.id, x, y }); }} />)}
+              {(track.midiClips ?? []).map((clip) => <MidiClipBlock key={clip.id} clip={clip} notes={track.notes.filter((note) => note.midiClipId === clip.id)} selected={selectedMidiClip === clip.id || allItemsSelected} pps={beatSeconds * pixelsPerSecond} snapStep={1} snap={snap} tool={editTool} onSelect={() => { setAllItemsSelected(false); setSelectedTrack(track.id); setSelectedMidiClip(clip.id); setSelectedClip(null); setSelectedNote(null); setActiveEditor("arrangement"); }} onOpen={() => openMidiEditor(track.id, clip.id)} onUpdate={(update) => updateMidiClip(track.id, clip.id, update)} onDelete={() => removeMidiClip(track.id, clip.id)} onContextMenu={(x, y) => {
+                setSelectedTrack(track.id); setSelectedMidiClip(clip.id);
+                setContextMenu({ kind: "midiClip", midiClipId: clip.id, trackId: track.id, x, y });
+              }} />)}
               <div className="playhead" style={{ left: `${snapshot.position * pixelsPerSecond}px` }} />
             </div>
           </div>)}
@@ -997,9 +1568,28 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       <div className="arrangement-footer"><span>{session.tracks.length} {session.tracks.length === 1 ? "track" : "tracks"}</span><span>Local project audio · {session.timeSignature} · {session.tempo} BPM</span></div>
     </section>
 
-    <section className={`workstation-bottom ${panel === "effects" ? "effects-open" : ""} ${panel === "routing" ? "routing-open" : ""} ${panel === "sampler" ? "sampler-open" : ""} ${panel === "drums" ? "drums-open" : ""}`}>
+    {inspectorVisible && <div className="dock-resize-handle" role="separator" aria-label="Resize lower dock" aria-orientation="horizontal" aria-valuenow={dockHeight} tabIndex={0} onKeyDown={(event) => {
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+        const next = clamp(dockHeight + (event.key === "ArrowUp" ? 12 : -12), 150, Math.floor(window.innerHeight * 0.65));
+        setDockHeight(next); localStorage.setItem("prism.dockHeight", String(next)); event.preventDefault();
+      }
+    }} onPointerDown={(event) => {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      (event.currentTarget as HTMLElement).dataset.dragY = String(event.clientY);
+      (event.currentTarget as HTMLElement).dataset.dragHeight = String(dockHeight);
+    }} onPointerMove={(event) => {
+      const element = event.currentTarget as HTMLElement;
+      if (!element.hasPointerCapture(event.pointerId)) return;
+      const startY = Number(element.dataset.dragY);
+      const startHeight = Number(element.dataset.dragHeight);
+      setDockHeight(clamp(startHeight + startY - event.clientY, 150, Math.floor(window.innerHeight * 0.65)));
+    }} onPointerUp={(event) => {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+      localStorage.setItem("prism.dockHeight", String(dockHeight));
+    }} />}
+    {inspectorVisible ? <section className={`workstation-bottom ${panel === "effects" ? "effects-open" : ""} ${panel === "routing" ? "routing-open" : ""} ${panel === "sampler" ? "sampler-open" : ""} ${panel === "drums" ? "drums-open" : ""}`} style={{ flexBasis: `${dockHeight}px` }} onPointerDown={() => setActiveEditor(activeShortcutContext(panel))}>
       <nav className="lower-panel-tabs" aria-label="Workstation panels">
-        {(["mixer", "clip", "piano", "sampler", "drums", "effects", "routing", "devices"] as const).map((tab) => <button key={tab} className={`lower-tab ${panel === tab ? "active" : ""}`} data-testid={`tab-${tab}`} onClick={() => { if (tab === "effects") setSelectedEffectBusId(""); setPanel(tab); }}>{tab === "mixer" ? <SlidersHorizontal size={13} /> : tab === "clip" ? <AudioLines size={13} /> : tab === "piano" || tab === "drums" ? <Music2 size={13} /> : tab === "sampler" || tab === "routing" ? <AudioLines size={13} /> : tab === "effects" ? <Sparkles size={13} /> : <Headphones size={13} />}{tab === "clip" ? "Clip" : tab === "devices" ? "I/O" : tab[0].toUpperCase() + tab.slice(1)}</button>)}
+        {(["mixer", "clip", "piano", "sampler", "drums", "effects", "routing", "devices"] as const).map((tab) => <button key={tab} className={`lower-tab ${panel === tab ? "active" : ""}`} data-testid={`tab-${tab}`} onClick={() => { if (tab === "effects") setSelectedEffectBusId(""); setPanel(tab); setActiveEditor(activeShortcutContext(tab)); }}>{tab === "mixer" ? <SlidersHorizontal size={13} /> : tab === "clip" ? <AudioLines size={13} /> : tab === "piano" || tab === "drums" ? <Music2 size={13} /> : tab === "sampler" || tab === "routing" ? <AudioLines size={13} /> : tab === "effects" ? <Sparkles size={13} /> : <Headphones size={13} />}{tab === "clip" ? "Clip" : tab === "devices" ? "I/O" : tab[0].toUpperCase() + tab.slice(1)}</button>)}
       </nav>
       {panel === "mixer" && <div className="mixer-channels">
         {session.tracks.map((track) => <div className="mixer-channel" key={track.id}>
@@ -1029,7 +1619,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
           onImportSample={() => { void importSampleForTrack(selectedSamplerTrack.id); }}
           onPreview={() => { void previewSampleNote(selectedSamplerTrack.id, selectedSamplerTrack.sampler?.rootNote ?? 60); }}
           onAddNote={() => addMidiNote(selectedSamplerTrack.id, selectedSamplerTrack.sampler?.rootNote ?? 60)}
-          onOpenPattern={() => setPanel("piano")}
+          onOpenPattern={() => { setPanel("piano"); setActiveEditor("piano"); }}
         />
       </div> : <div className="panel-empty">Select a sampler track to load a sample and edit its MIDI pattern.</div>)}
       {panel === "drums" && (selectedDrumTrack ? <div className="instrument-panel-wrap">
@@ -1047,7 +1637,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
           onImportSample={(padId) => { void importSampleForTrack(selectedDrumTrack.id, padId); }}
           onPreviewPad={(pad: DrumPadState) => { void previewSampleNote(selectedDrumTrack.id, pad.note); }}
           onAddHit={(pad: DrumPadState) => addMidiNote(selectedDrumTrack.id, pad.note, 0.25)}
-          onOpenPattern={() => setPanel("piano")}
+          onOpenPattern={() => { setPanel("piano"); setActiveEditor("piano"); }}
         />
       </div> : <div className="panel-empty">Select a drum track to assign samples and build a pad pattern.</div>)}
       {panel === "piano" && <div className="piano-panel">
@@ -1060,8 +1650,11 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
             <label>Release<input data-testid="input-instrument-release" type="number" min="0.005" max="4" step="0.005" value={selectedInstrument.instrument?.release ?? 0.18} onChange={(event) => updateInstrumentParameter("release", Number(event.target.value))} /></label>
           </>}
           {!selectedInstrument && <span className="pattern-track-label" data-testid="text-pattern-track">
-            {selectedPatternTrack ? `MIDI pattern · ${selectedPatternTrack.name}` : "Select a MIDI track"}
+            {selectedPatternTrack ? `MIDI · ${selectedPatternTrack.name}` : "Select a MIDI track"}
           </span>}
+          {selectedPatternTrack && <label className="midi-clip-picker">Clip<select data-testid="select-midi-clip" value={selectedMidiClipData?.id ?? ""} onChange={(event) => {
+            setSelectedMidiClip(event.target.value || null); setSelectedNote(null);
+           }}><option value="">No clip selected</option>{(selectedPatternTrack.midiClips ?? []).map((clip) => <option key={clip.id} value={clip.id}>{clip.name}</option>)}</select></label>}
           {selectedPatternTrack && <button className="button button-subtle" data-testid="button-add-midi-note" disabled={selectedPatternTrack.type === "unsupported"} onClick={() => {
             const pitch = selectedPatternTrack.type === "sampler"
               ? selectedPatternTrack.sampler?.rootNote ?? 60
@@ -1076,7 +1669,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
             <button className="icon-button compact danger-hover" data-testid="button-delete-midi-note" title="Delete selected note" onClick={() => { if (selectedNote) removeNote(selectedNote); }}><Trash2 size={13} /></button>
           </>}
         </div>
-        <div className="piano-grid" ref={pianoGridRef} data-testid="piano-roll" onClick={(event) => {
+        <div className="piano-grid" ref={pianoGridRef} data-testid="piano-roll" onDoubleClick={(event) => {
           if ((event.target as HTMLElement).closest(".piano-key, .piano-note")) return;
           if (editTool === "erase" || editTool === "split") return;
           if (!selectedPatternTrack || selectedPatternTrack.type === "unsupported") {
@@ -1089,9 +1682,9 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
           createMidiNoteAt(selectedPatternTrack.id, beat, pitch);
         }}>
           {Array.from({ length: 128 }, (_, index) => <div key={index} className={`piano-row ${isBlackKey(127 - index) ? "black-key-row" : ""}`}><span className="piano-key">{pitchName(127 - index)}</span></div>)}
-          {selectedPatternTrack?.notes.map((note) => <PianoNote key={note.id} note={note} selected={note.id === selectedNote} beatWidth={beatSeconds * pixelsPerSecond} snap={snap} tool={editTool} onSelect={() => { setSelectedNote(note.id); setSelectedTrack(selectedPatternTrack.id); }} onChange={(update) => updateNote(selectedPatternTrack.id, note.id, update)} onDelete={() => removeNote(note.id)} onSplit={() => splitMidiNote(note.id)} onContextMenu={(x, y) => { setSelectedNote(note.id); setSelectedTrack(selectedPatternTrack.id); setContextMenu({ kind: "note", noteId: note.id, trackId: selectedPatternTrack.id, x, y }); }} />)}
+          {pianoNotes.map((note) => <PianoNote key={note.id} note={note} selected={note.id === selectedNote || allItemsSelected} beatWidth={beatSeconds * pixelsPerSecond} snap={snap} tool={editTool} onSelect={() => { setAllItemsSelected(false); setSelectedNote(note.id); setSelectedTrack(selectedPatternTrack!.id); }} onChange={(update) => updateNote(selectedPatternTrack!.id, note.id, update)} onDelete={() => removeNote(note.id)} onSplit={() => splitMidiNote(note.id)} onContextMenu={(x, y) => { setSelectedNote(note.id); setSelectedTrack(selectedPatternTrack!.id); setContextMenu({ kind: "note", noteId: note.id, trackId: selectedPatternTrack!.id, x, y }); }} />)}
         </div>
-        {!selectedPatternTrack && <div className="piano-hint">Choose an instrument, sampler, or drum track to edit MIDI notes. Click the grid to place a note.</div>}
+         {!selectedPatternTrack && <div className="piano-hint">Choose an instrument, sampler, or drum track to edit MIDI notes. Double-click the grid to place a note.</div>}
         {selectedPatternTrack?.type === "unsupported" && <div className="piano-hint">This track’s MIDI is preserved but cannot play until you recover it as a supported instrument.</div>}
       </div>}
       {panel === "routing" && <RoutingPanel
@@ -1101,7 +1694,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         allowedBusTargets={(busId) => getAllowedBusTargets(session.tracks, session.buses, busId)}
         onChange={setSession}
         onSelectTrack={setSelectedTrack}
-        onEditBusEffects={(busId) => { setSelectedEffectBusId(busId); setPanel("effects"); }}
+        onEditBusEffects={(busId) => { setSelectedEffectBusId(busId); setPanel("effects"); setActiveEditor("effects"); }}
         onNotice={setNotice}
       />}
       {panel === "effects" && <EffectsPanel
@@ -1137,18 +1730,25 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         </div>
         <div className="recording-hint" data-testid="status-recording-setup">Input monitoring can produce feedback or delay; headphones are recommended. {session.tracks.some((track) => track.recordArmed) ? "An audio track is armed. Press Record to capture input." : "Arm an audio track with R in the track header before recording."}</div>
       </div>}
-    </section>
+    </section> : <button className="show-lower-panel" onClick={() => { setInspectorVisible(true); localStorage.setItem("prism.inspectorVisible", "true"); }}><PanelBottom size={13} /> Show dock</button>}
     {contextMenu && <div className="workstation-context-backdrop" data-testid="workstation-context-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setContextMenu(null); }}>
       <div className="workstation-context-menu" role="menu" data-testid="workstation-context-menu" style={{ left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - 190)), top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 160)) }} onContextMenu={(event) => event.preventDefault()}>
-        <span className="context-menu-heading">{contextMenu.kind === "clip" ? "Audio clip" : "MIDI note"}</span>
+        <span className="context-menu-heading">{contextMenu.kind === "clip" ? "Audio clip" : contextMenu.kind === "midiClip" ? "MIDI clip" : "MIDI note"}</span>
         <button role="menuitem" data-testid="context-duplicate" onClick={() => {
           if (contextMenu.kind === "clip") duplicateClipById(contextMenu.clipId);
+          else if (contextMenu.kind === "midiClip") duplicateMidiClip(contextMenu.midiClipId);
           else duplicateNote(contextMenu.noteId);
           setContextMenu(null);
         }}>Duplicate</button>
-        <button role="menuitem" data-testid="context-split" onClick={() => { if (contextMenu.kind === "clip") splitClipById(contextMenu.clipId); else splitMidiNote(contextMenu.noteId); setContextMenu(null); }}>Split at playhead</button>
+        <button role="menuitem" data-testid="context-split" onClick={() => {
+          if (contextMenu.kind === "clip") splitClipById(contextMenu.clipId);
+          else if (contextMenu.kind === "midiClip") splitMidiClipById(contextMenu.midiClipId);
+          else splitMidiNote(contextMenu.noteId);
+          setContextMenu(null);
+        }}>Split at playhead</button>
         <button role="menuitem" className="context-danger" data-testid="context-delete" onClick={() => {
           if (contextMenu.kind === "clip") removeClip(contextMenu.clipId);
+          else if (contextMenu.kind === "midiClip") removeMidiClip(contextMenu.trackId, contextMenu.midiClipId);
           else removeNote(contextMenu.noteId);
           setContextMenu(null);
         }}>Delete</button>
@@ -1165,13 +1765,13 @@ function ClipBlock({ clip, selected, pps, snap, snapStep, tool, onSelect, onUpda
 }) {
   const drag = useRef<{ x: number; start: number; duration: number; edge: "move" | "left" | "right" } | null>(null);
   const [preview, setPreview] = useState<{ start: number; duration: number; source: number } | null>(null);
-  const begin = (event: PointerEvent<HTMLElement>, edge: "move" | "left" | "right") => {
+  const begin = (event: ReactPointerEvent<HTMLElement>, edge: "move" | "left" | "right") => {
     if (event.button !== 0 || tool === "erase" || tool === "split") return;
     event.preventDefault(); event.stopPropagation(); onSelect();
     drag.current = { x: event.clientX, start: clip.startSeconds, duration: clip.durationSeconds, edge };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
-  const move = (event: PointerEvent<HTMLDivElement>) => {
+  const move = (event: ReactPointerEvent<HTMLDivElement>) => {
     const state = drag.current; if (!state) return;
     const delta = (event.clientX - state.x) / pps;
     const quantize = (value: number) => snap ? Math.max(0, Math.round(value / snapStep) * snapStep) : Math.max(0, value);
@@ -1211,6 +1811,65 @@ function ClipBlock({ clip, selected, pps, snap, snapStep, tool, onSelect, onUpda
       <span className="clip-duration">{formatSeconds(clip.durationSeconds)}</span><span className="clip-fades" style={{ "--fade-in": `${clip.fadeInSeconds / Math.max(clip.durationSeconds, .01) * 100}%`, "--fade-out": `${clip.fadeOutSeconds / Math.max(clip.durationSeconds, .01) * 100}%` } as CSSProperties} />
     </div>
     <button className="trim-edge trim-right" data-testid={`trim-right-${clip.id}`} aria-label="Trim clip end" onPointerDown={(event) => begin(event, "right")} />
+  </div>;
+}
+
+function MidiClipBlock({ clip, notes, selected, pps, snap, snapStep, tool, onSelect, onOpen, onUpdate, onDelete, onContextMenu }: {
+  clip: MidiClip;
+  notes: MidiNote[];
+  selected: boolean;
+  pps: number;
+  snap: boolean;
+  snapStep: number;
+  tool: EditTool;
+  onSelect: () => void;
+  onOpen: () => void;
+  onUpdate: (update: Partial<MidiClip>) => void;
+  onDelete: () => void;
+  onContextMenu: (x: number, y: number) => void;
+}) {
+  const drag = useRef<{ x: number; start: number; duration: number; side: "move" | "right" } | null>(null);
+  const [preview, setPreview] = useState<{ start: number; duration: number } | null>(null);
+  const start = preview?.start ?? clip.startBeat;
+  const duration = preview?.duration ?? clip.durationBeats;
+  const begin = (event: ReactPointerEvent<HTMLElement>, side: "move" | "right") => {
+    if (event.button !== 0 || tool === "erase" || tool === "split") return;
+    event.preventDefault(); event.stopPropagation(); onSelect();
+    drag.current = { x: event.clientX, start: clip.startBeat, duration: clip.durationBeats, side };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const move = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return;
+    const state = drag.current;
+    const rawDelta = (event.clientX - state.x) / pps;
+    const quantize = (value: number) => snap ? Math.round(value / snapStep) * snapStep : value;
+    if (state.side === "move") {
+      setPreview({ start: Math.max(0, quantize(state.start + rawDelta)), duration: state.duration });
+    } else {
+      setPreview({ start: state.start, duration: Math.max(.25, quantize(state.duration + rawDelta)) });
+    }
+  };
+  const finish = () => {
+    if (preview) onUpdate({ startBeat: preview.start, durationBeats: preview.duration });
+    setPreview(null); drag.current = null;
+  };
+  return <div className={`midi-clip ${selected ? "selected" : ""}`} data-testid={`midi-clip-${clip.id}`}
+    style={{ left: `${start * pps}px`, width: `${Math.max(62, duration * pps)}px` }}
+    onClick={(event) => { event.stopPropagation(); if (tool === "erase") onDelete(); else if (tool === "select") onSelect(); }}
+    onDoubleClick={(event) => { event.stopPropagation(); onOpen(); }}
+    onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onContextMenu(event.clientX, event.clientY); }}
+    onPointerMove={move} onPointerUp={finish} onPointerCancel={finish}>
+    <button className="midi-clip-body" type="button" title={`${clip.name} · ${notes.length} notes · double-click to edit`} onPointerDown={(event) => begin(event, "move")}>
+      <span className="midi-clip-name">{clip.name}</span>
+      <span className="midi-clip-notes">{notes.map((note) => <i key={note.id} style={{
+        left: `${Math.max(0, (note.startBeat - clip.startBeat) / clip.durationBeats) * 100}%`,
+        width: `${Math.max(1, note.durationBeats / clip.durationBeats * 100)}%`,
+        bottom: `${Math.max(8, Math.min(88, note.pitch / 127 * 80))}%`,
+        opacity: .35 + note.velocity / 190,
+      }} />)}</span>
+      <small>{notes.length} notes</small>
+    </button>
+    <button className="midi-clip-trim" type="button" aria-label="Resize MIDI clip" onPointerDown={(event) => begin(event, "right")} />
   </div>;
 }
 
@@ -1262,7 +1921,16 @@ function PianoNote({ note, selected, beatWidth, snap, tool, onSelect, onChange, 
 
 function MeterBar({ meter, id }: { meter?: Meter; id: string }) {
   const peak = Math.max(0, Math.min(1, meter?.peak ?? 0));
-  return <div className="mixer-meter" data-testid={`meter-${id}`} role="meter" aria-label={`${id} output level`} aria-valuemin={0} aria-valuemax={1} aria-valuenow={peak}><span style={{ transform: `scaleX(${peak})` }} /><i style={{ left: `${peak * 100}%` }} /></div>;
+  const [heldPeak, setHeldPeak] = useState(peak);
+  const [clipped, setClipped] = useState(false);
+  useEffect(() => {
+    setHeldPeak((current) => Math.max(peak, current * .985));
+    if ((meter?.peak ?? 0) >= .995) setClipped(true);
+  }, [peak]);
+  const clearPeak = () => { setHeldPeak(0); setClipped(false); };
+  return <div className={`mixer-meter ${clipped ? "is-clipping" : ""}`} data-testid={`meter-${id}`} role="meter" aria-label={`${id} output level; click to reset peak`} aria-valuemin={0} aria-valuemax={1} aria-valuenow={peak} title={`${Math.round(peak * 100)}% peak · click to clear peak`} tabIndex={0} onClick={clearPeak} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); clearPeak(); } }}>
+    <span style={{ transform: `scaleX(${peak})` }} /><i style={{ left: `${heldPeak * 100}%` }} /><b aria-hidden="true" />
+  </div>;
 }
 
 function beatsPerBar(meter: string): number { const [top] = meter.split("/").map(Number); return top || 4; }

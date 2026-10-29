@@ -87,3 +87,35 @@ test("binding conflicts only apply where command contexts overlap", () => {
   defaults["edit.nudgeLeft"] = "ArrowLeft";
   assert.deepEqual(findShortcutConflicts(defaults), []);
 });
+
+test("required workstation defaults are platform-neutral and conflict-free", () => {
+  const defaults = getDefaultShortcutBindings();
+  assert.deepEqual({
+    play: defaults["transport.toggle"],
+    record: defaults["transport.record"],
+    home: defaults["transport.home"],
+    split: defaults["edit.split"],
+    delete: defaults["edit.delete"],
+    undo: defaults["edit.undo"],
+    redo: defaults["edit.redo"],
+    cut: defaults["edit.cut"],
+    copy: defaults["edit.copy"],
+    paste: defaults["edit.paste"],
+    duplicate: defaults["edit.duplicate"],
+    selectAll: defaults["edit.selectAll"],
+    save: defaults["project.save"],
+    saveAs: defaults["project.saveAs"],
+    export: defaults["project.export"],
+    snap: defaults["edit.toggleSnap"],
+    loop: defaults["transport.loop"],
+    metronome: defaults["transport.metronome"],
+    fit: defaults["view.fit"],
+  }, {
+    play: "Space", record: "R", home: "Home", split: "S", delete: "Delete",
+    undo: "Mod+Z", redo: "Mod+Shift+Z", cut: "Mod+X", copy: "Mod+C",
+    paste: "Mod+V", duplicate: "Mod+D", selectAll: "Mod+A", save: "Mod+S",
+    saveAs: "Mod+Shift+S", export: "Mod+E", snap: "N", loop: "L",
+    metronome: "K", fit: "F",
+  });
+  assert.deepEqual(findShortcutConflicts(defaults), []);
+});
