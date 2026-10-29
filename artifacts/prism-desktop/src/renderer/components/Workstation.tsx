@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import {
   AudioLines, Circle, CircleStop, Download, Headphones, Music2, Pause, Play, Plus,
-  Keyboard, Redo2, Save, SkipBack, SlidersHorizontal, Sparkles, Trash2, Undo2, Volume2, VolumeX, X,
+  Keyboard, Redo2, Save, Settings2, SkipBack, SlidersHorizontal, Sparkles, Trash2, Undo2, Volume2, VolumeX, X,
 } from "lucide-react";
 import type {
   AudioClip,
@@ -52,6 +52,7 @@ type WorkstationProps = {
   releaseTitle: string;
   onBack: () => void;
   onHome: () => void;
+  onSettings: () => void;
 };
 type Meter = { peak: number; rms: number };
 type ContextMenuTarget =
@@ -75,7 +76,7 @@ const emptySnapshot: AudioEngineSnapshot = {
 const historyLimit = 50;
 type EditTool = "select" | "draw" | "erase" | "split";
 
-export function Workstation({ session: initialSession, releaseTitle, onBack, onHome }: WorkstationProps) {
+export function Workstation({ session: initialSession, releaseTitle, onBack, onHome, onSettings }: WorkstationProps) {
   const [session, setSession] = useState(initialSession);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
   const [saveError, setSaveError] = useState("");
@@ -804,6 +805,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || (event.target instanceof Element && event.target.closest('[role="dialog"]'))) return;
       if (shortcutStateRef.current.dialogOpen) return;
       if (event.key === "Escape" && (shortcutStateRef.current.menuOpen || shortcutStateRef.current.contextMenu)) {
         event.preventDefault();
@@ -852,6 +854,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         <span className="crumb-divider">/</span><strong className="current-song" data-testid="text-song-title">{session.title}</strong>
       </div>
       <nav className="workstation-command-menus" aria-label="Workstation menus">
+        <button className="command-menu-trigger workstation-settings-trigger" type="button" onClick={onSettings} aria-label="Open settings" title="Settings"><Settings2 size={14} /><span>Settings</span></button>
         <div className="command-menu-wrap">
           <button className="command-menu-trigger" type="button" data-testid="menu-edit" aria-haspopup="menu" aria-expanded={openCommandMenu === "edit"} onClick={() => setOpenCommandMenu((current) => current === "edit" ? null : "edit")}>Edit</button>
           {openCommandMenu === "edit" && <div className="workstation-command-menu" role="menu">

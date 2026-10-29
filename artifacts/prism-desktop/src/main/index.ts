@@ -29,6 +29,7 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { migrateSongSession } from "../shared/migrations";
 import { writeAtomicText } from "./atomic-write";
+import { ThemeStore } from "./theme-store";
 import {
   createEffectPresetFile,
   maxEffectPresetBytes,
@@ -449,6 +450,8 @@ function allowedSender(senderId: number): void {
   }
 }
 
+let themeStore: ThemeStore;
+
 function registerIpcHandlers(): void {
   const handle = (
     channel: string,
@@ -460,6 +463,10 @@ function registerIpcHandlers(): void {
     });
   };
 
+  handle("prism:themes:get", () => themeStore.getState());
+  handle("prism:themes:claim", (_event, id) => themeStore.claim(id));
+  handle("prism:themes:apply", (_event, id) => themeStore.apply(id));
+  handle("prism:themes:repair", (_event, id) => themeStore.repair(id));
   handle("prism:releases:list", async () =>
     [...getLibrary().releases].sort((a, b) =>
       (b.lastOpenedAt ?? b.updatedAt).localeCompare(a.lastOpenedAt ?? a.updatedAt),
@@ -1303,6 +1310,12 @@ app.whenReady().then(async () => {
   assetDirectory = join(dataDirectory, "assets");
   libraryFile = join(dataDirectory, "library.json");
   await mkdir(assetDirectory, { recursive: true });
+  themeStore = new ThemeStore(dataDirectory);
+  await themeStore.initialize().catch((error) => {
+    // Appearance problems must not prevent users from opening their music.
+    // Theme IPC retries initialization and exposes the error in Preferences.
+    console.warn("PRISM appearance settings are unavailable:", error);
+  });
   library = await readLibrary();
   await recoverInterruptedRecordings();
   await protocol.handle("prism-media", handleMediaRequest);

@@ -223,6 +223,10 @@ export type CreateSongInput = {
 };
 
 export type AppBridge = {
+  getThemeState(): Promise<import("./themes").ThemeState>;
+  claimTheme(themeId: string): Promise<import("./themes").ThemeState>;
+  applyTheme(themeId: string): Promise<import("./themes").ThemeState>;
+  repairTheme(themeId: string): Promise<import("./themes").ThemeState>;
   listReleases(): Promise<Release[]>;
   markReleaseOpened(releaseId: string): Promise<void>;
   getSession(sessionId: string): Promise<SongSession | null>;
