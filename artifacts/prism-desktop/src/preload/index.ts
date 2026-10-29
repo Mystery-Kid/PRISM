@@ -10,6 +10,10 @@ import type {
 } from "@shared/types";
 
 const bridge: AppBridge = {
+  listInstrumentPresets: () => ipcRenderer.invoke("prism:instruments:presets:list"),
+  saveInstrumentPreset: (preset) => ipcRenderer.invoke("prism:instruments:presets:save", preset),
+  deleteInstrumentPreset: (id) => ipcRenderer.invoke("prism:instruments:presets:delete", id),
+  getFactoryDrumKit: () => ipcRenderer.invoke("prism:instruments:drums"),
   saveProjectAs: (session) => ipcRenderer.invoke("prism:project:save-as", session),
   openProject: () => ipcRenderer.invoke("prism:project:open"),
   getAppVersion: () => ipcRenderer.invoke("prism:app:version"),

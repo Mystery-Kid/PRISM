@@ -54,6 +54,11 @@ export type MidiClip = {
 };
 
 export type InstrumentState = {
+  /** Absent in legacy projects: retain the original custom oscillator sound. */
+  instrumentId?: string;
+  parameters?: Record<string, number>;
+  presetName?: string;
+  presetId?: string;
   waveform: OscillatorType;
   attack: number;
   decay: number;
@@ -76,6 +81,7 @@ export type DrumPadState = {
 };
 
 export type DrumKitState = {
+  instrumentId?: string;
   pads: DrumPadState[];
   patternLengthBars?: number;
   patternStartBeat?: number;
@@ -85,6 +91,18 @@ export type InstrumentRecoveryState = {
   originalType: string;
   rawState: JsonValue | null;
   message: string;
+};
+
+export type InstrumentPreset = {
+  id: string;
+  name: string;
+  version: 1;
+  type: "instrument" | "sampler" | "drum";
+  instrument: InstrumentState | null;
+  sampler: SamplerState | null;
+  drumKit: DrumKitState | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type EffectType = "equalizer" | "reverb" | "delay" | "compressor";
@@ -268,6 +286,10 @@ export type AppBridge = {
   listEffectPresets(projectId: string): Promise<EffectChainPreset[]>;
   saveEffectPreset(preset: Omit<EffectChainPreset, "createdAt" | "updatedAt">): Promise<EffectChainPreset>;
   deleteEffectPreset(presetId: string, projectId: string): Promise<void>;
+  listInstrumentPresets(): Promise<InstrumentPreset[]>;
+  saveInstrumentPreset(preset: Omit<InstrumentPreset, "createdAt" | "updatedAt">): Promise<InstrumentPreset>;
+  deleteInstrumentPreset(presetId: string): Promise<void>;
+  getFactoryDrumKit(): Promise<DrumKitState>;
   importEffectPreset(): Promise<EffectChainPresetFile | null>;
   exportEffectPreset(preset: EffectChainPresetFile): Promise<boolean>;
   chooseArtwork(releaseId: string): Promise<Release | null>;

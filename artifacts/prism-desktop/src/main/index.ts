@@ -47,6 +47,8 @@ import {
   visibleEffectPresets,
 } from "../shared/effect-presets";
 import { normalizeEffectChain } from "../shared/effect-definitions";
+import { normalizeInstrumentPreset } from "../shared/instrument-presets";
+import { installFactoryDrums } from "./factory-drums";
 import { validateInstrumentTrackState } from "../shared/instrument-tracks";
 import { validateAudioRouting } from "../shared/audio-routing";
 import { validateMidiArrangement } from "../shared/midi-arrangement";
@@ -112,7 +114,7 @@ let closeApproved = false;
 const activeRecordings = new Map<string, ActiveRecording>();
 
 function emptyLibrary(): ProjectLibrary {
-  return { version: 5, releases: [], sessions: [], assets: [], effectPresets: [] };
+  return { version: 6, releases: [], sessions: [], assets: [], effectPresets: [], instrumentPresets: [] };
 }
 
 async function persistLibrary(): Promise<void> {
@@ -445,6 +447,7 @@ function allowedSender(senderId: number): void {
 let themeStore: ThemeStore;
 
 function registerIpcHandlers(): void {
+  let factoryDrums: ReturnType<typeof installFactoryDrums> | null = null;
   const handle = (
     channel: string,
     listener: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => unknown,
@@ -456,6 +459,27 @@ function registerIpcHandlers(): void {
   };
 
   handle("prism:themes:get", () => themeStore.getState());
+  handle("prism:instruments:presets:list", () => structuredClone(getLibrary().instrumentPresets));
+  handle("prism:instruments:drums", () => {
+    factoryDrums ??= installFactoryDrums(getLibrary(), assetDirectory, persistLibrary).finally(() => { factoryDrums = null; });
+    return factoryDrums;
+  });
+  handle("prism:instruments:presets:save", async (_event, input) => {
+    const preset = normalizeInstrumentPreset({ ...input, updatedAt: new Date().toISOString() });
+    const previous = getLibrary().instrumentPresets;
+    const existing = previous.find((item) => item.id === preset.id);
+    preset.createdAt = existing?.createdAt ?? preset.createdAt;
+    getLibrary().instrumentPresets = [...previous.filter((item) => item.id !== preset.id), preset];
+    try { await persistLibrary(); return structuredClone(preset); }
+    catch (error) { getLibrary().instrumentPresets = previous; throw error; }
+  });
+  handle("prism:instruments:presets:delete", async (_event, id) => {
+    if (typeof id !== "string" || !id.trim()) throw new Error("Choose an instrument preset.");
+    const previous = getLibrary().instrumentPresets;
+    getLibrary().instrumentPresets = previous.filter((item) => item.id !== id);
+    try { await persistLibrary(); }
+    catch (error) { getLibrary().instrumentPresets = previous; throw error; }
+  });
   handle("prism:app:version", () => app.getVersion());
   handle("prism:app:exit", () => { mainWindow?.close(); });
   handle("prism:project:save-as", async (_event, input: SongSession) => {
@@ -487,6 +511,7 @@ function registerIpcHandlers(): void {
       sessions: [...previous.sessions, ...imported.library.sessions],
       assets: [...previous.assets, ...imported.library.assets],
       effectPresets: [...previous.effectPresets, ...imported.library.effectPresets],
+      instrumentPresets: previous.instrumentPresets,
     };
     try {
       await persistLibrary();

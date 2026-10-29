@@ -10,10 +10,12 @@ $installation = Start-Process -FilePath $installer.FullName -ArgumentList "/S", 
 if ($installation.ExitCode -ne 0) { throw "Silent installation failed: $($installation.ExitCode)" }
 $exe = Join-Path $installDir "PRISM.exe"
 if (!(Test-Path $exe)) { throw "Installed PRISM.exe was not found." }
-foreach ($phase in @("first-launch", "reopen", "theme-reopen")) {
+foreach ($phase in @("first-launch", "reopen", "theme-reopen", "instruments-create", "instruments-reopen")) {
   $arguments = @("--prism-smoke-test=$root")
   if ($phase -eq "reopen") { $arguments += "--prism-smoke-reopen" }
   if ($phase -eq "theme-reopen") { $arguments += "--prism-smoke-reopen", "--prism-theme-reopen" }
+  if ($phase -eq "instruments-create") { $arguments += "--prism-instrument-create" }
+  if ($phase -eq "instruments-reopen") { $arguments += "--prism-instrument-reopen" }
   $process = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru
   if (!$process.WaitForExit(120000)) {
     $process.Kill()
@@ -25,5 +27,5 @@ foreach ($phase in @("first-launch", "reopen", "theme-reopen")) {
   Get-Content $reportPath
   if (!$report.ok -or $process.ExitCode -ne 0) { throw "Installed PRISM failed $phase." }
 }
-Write-Host "Installed Windows startup, IPC, editing, Day/Starry switching, reduced motion and restart persistence passed."
+Write-Host "Installed Windows startup, IPC, editing, themes, real instrument controls, presets, drums, recovery and process-restart persistence passed."
 Write-Host "Physical audio output, native device drivers and interactive file dialogs are not covered."
