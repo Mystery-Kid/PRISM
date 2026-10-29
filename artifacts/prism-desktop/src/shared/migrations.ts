@@ -6,8 +6,8 @@ import type {
   SongSession,
   Track,
 } from "./types";
+import { normalizeEffectState } from "./effect-definitions";
 
-const effectTypes = new Set(["equalizer", "reverb", "delay", "compressor"]);
 const waveforms = new Set(["sine", "square", "sawtooth", "triangle"]);
 const trackColors = ["#f47b54", "#72c4be", "#b295e8", "#e4b85e", "#7c9ef2"];
 
@@ -25,19 +25,8 @@ function migrateEffects(value: unknown): EffectState[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
     const effect = record(item);
-    if (typeof effect.id !== "string" || !effectTypes.has(String(effect.type))) return [];
-    const rawParameters = record(effect.parameters);
-    const parameters = Object.fromEntries(
-      Object.entries(rawParameters).filter(([, current]) =>
-        typeof current === "number" && Number.isFinite(current),
-      ),
-    ) as Record<string, number>;
-    return [{
-      id: effect.id,
-      type: effect.type as EffectState["type"],
-      enabled: effect.enabled !== false,
-      parameters,
-    }];
+    const normalized = normalizeEffectState(effect);
+    return normalized ? [normalized] : [];
   });
 }
 
