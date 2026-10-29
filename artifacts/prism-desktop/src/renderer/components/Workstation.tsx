@@ -1110,9 +1110,15 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
             return { ...track, clips, midiClips, notes };
           });
         setSession((current) => ({ ...current, tracks: pastedTracks }));
-        if (firstAudioId) setSelectedClip(firstAudioId);
-        if (firstMidiId) setSelectedMidiClip(firstMidiId);
-        if (firstNoteId) setSelectedNote(firstNoteId);
+        // Do not leave an unrelated old selection active after the paste:
+        // the next Delete/Split must target the newly pasted selection.
+        setSelectedClip(firstMidiId ? null : firstAudioId);
+        setSelectedMidiClip(firstMidiId);
+        setSelectedNote(firstNoteId);
+        const pastedTrack = pastedTracks.find((track) => firstMidiId
+          ? track.midiClips?.some((clip) => clip.id === firstMidiId)
+          : track.clips.some((clip) => clip.id === firstAudioId));
+        if (pastedTrack) setSelectedTrack(pastedTrack.id);
         setAllItemsSelected(false);
         break;
       }
