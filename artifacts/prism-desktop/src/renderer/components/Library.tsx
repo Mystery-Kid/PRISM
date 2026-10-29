@@ -538,11 +538,11 @@ export function SettingsDialog({ onClose, onKeyboardShortcuts }: { onClose: () =
   };
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section ref={dialogRef} className="modal-panel settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1}>
-        <div className="modal-heading"><div><span className="eyebrow">On this computer</span><h2 id="settings-title">Settings</h2></div><button className="icon-button" onClick={onClose} aria-label="Close"><X size={18} /></button></div>
+      <section ref={dialogRef} className="modal-panel settings-modal" data-testid="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1}>
+        <div className="modal-heading"><div><span className="eyebrow">On this computer</span><h2 id="settings-title">Settings</h2></div><button className="icon-button" data-testid="settings-close" onClick={onClose} aria-label="Close"><X size={18} /></button></div>
         <div className="settings-tabs" role="tablist" aria-label="Settings sections">
           <button role="tab" aria-selected={section === "general"} className={section === "general" ? "active" : ""} onClick={() => setSection("general")}>General</button>
-          <button role="tab" aria-selected={section === "appearance"} className={section === "appearance" ? "active" : ""} onClick={() => setSection("appearance")}>Appearance</button>
+          <button role="tab" data-testid="settings-tab-appearance" aria-selected={section === "appearance"} className={section === "appearance" ? "active" : ""} onClick={() => setSection("appearance")}>Appearance</button>
           <button role="tab" aria-selected={section === "shortcuts"} className={section === "shortcuts" ? "active" : ""} onClick={() => setSection("shortcuts")}>Shortcuts</button>
         </div>
         {section === "appearance" ? <AppearanceSettings /> : <>
