@@ -25,7 +25,7 @@ html[data-theme="theme.day"] {
   --line-soft: #e2e7e9;
   --text: #263238;
   --muted: #56656b;
-  --subtle: #75838a;
+  --subtle: #617178;
   --accent: #347c7c;
   --accent-soft: #e1f0ef;
   --blue: #477f94;
@@ -39,7 +39,7 @@ html[data-theme="theme.day"] {
   --theme-line-soft: #e2e7e9;
   --theme-text: #263238;
   --theme-muted: #56656b;
-  --theme-subtle: #75838a;
+  --theme-subtle: #617178;
   --theme-accent: #347c7c;
   --theme-accent-soft: #e1f0ef;
   background: var(--theme-bg);
@@ -475,3 +475,230 @@ html:root[data-theme="theme.starry"] .timeline-lane { background-color: #0b1420c
 html:root[data-theme="theme.starry"] .timeline-ruler-row,
 html:root[data-theme="theme.starry"] .track-column-heading,
 html:root[data-theme="theme.starry"] .track-controls { background-color: #111c2bd9; border-color: #263748; }
+
+/* Day contrast corrections for legacy components that carry literal dark-mode text colors. */
+html[data-theme="theme.day"] .appearance-intro h3,
+html[data-theme="theme.day"] .appearance-name,
+html[data-theme="theme.day"] .settings-tabs button.active,
+html[data-theme="theme.day"] .settings-tabs button:hover,
+html[data-theme="theme.day"] .settings-tabs button,
+html[data-theme="theme.day"] .shop-product-copy h2,
+html[data-theme="theme.day"] .shop-titlebar h1,
+html[data-theme="theme.day"] .release-details h1,
+html[data-theme="theme.day"] .tracklist-heading h2,
+html[data-theme="theme.day"] .modal-heading h2,
+html[data-theme="theme.day"] .empty-tracks strong { color: #26383e; }
+html[data-theme="theme.day"] .settings-tabs button.active { border-bottom-color: #347c7c; }
+html[data-theme="theme.day"] .appearance-intro p,
+html[data-theme="theme.day"] .appearance-shop-hint,
+html[data-theme="theme.day"] .settings-copy,
+html[data-theme="theme.day"] .settings-note,
+html[data-theme="theme.day"] .shop-description,
+html[data-theme="theme.day"] .product-status,
+html[data-theme="theme.day"] .repair-note,
+html[data-theme="theme.day"] .shop-product-foot { color: #5d6e74; }
+html[data-theme="theme.day"] .appearance-shop-hint strong,
+html[data-theme="theme.day"] .product-index { color: #45636b; }
+html[data-theme="theme.day"] .appearance-action:disabled[data-testid^="theme-current-action"] {
+  opacity: 1;
+  color: #286b6b;
+  border-color: #b8d8d5;
+  background: #e1f0ef;
+}
+html[data-theme="theme.day"] .theme-success { color: #34734d; }
+html[data-theme="theme.day"] .theme-warning { color: #79551e; border-color: #ddca9d; background: #fbf6e8; }
+html[data-theme="theme.day"] .inline-error,
+html[data-theme="theme.day"] .theme-load-error { color: #813e38; border-color: #e0bbb7; background: #fbefed; }
+
+html[data-theme="theme.day"] .top-menu-trigger,
+html[data-theme="theme.day"] .command-menu-trigger,
+html[data-theme="theme.day"] .edit-tool-button { color: #53656b; }
+html[data-theme="theme.day"] .top-menu-trigger:hover,
+html[data-theme="theme.day"] .top-menu-trigger.active,
+html[data-theme="theme.day"] .command-menu-trigger:hover,
+html[data-theme="theme.day"] .command-menu-trigger[aria-expanded="true"],
+html[data-theme="theme.day"] .edit-tool-button:hover { color: #26383e; border-color: #cad6d9; background: #e8eff0; }
+html[data-theme="theme.day"] .edit-tool-group { border-color: #d0dadd; background: #f0f4f5; }
+html[data-theme="theme.day"] .edit-tool-button.active { color: #245e5d; border-color: #a6ceca; background: #dceeed; }
+html[data-theme="theme.day"] .workstation-command-menu,
+html[data-theme="theme.day"] .workstation-context-menu {
+  color: #34464c; border-color: #cbd6d9; background: #fff; box-shadow: 0 12px 32px #24383d24;
+}
+html[data-theme="theme.day"] .workstation-command-menu button,
+html[data-theme="theme.day"] .workstation-context-menu button { color: #35474d; }
+html[data-theme="theme.day"] .workstation-command-menu button:hover:not(:disabled),
+html[data-theme="theme.day"] .workstation-context-menu button:hover { color: #26383e; background: #eaf0f1; }
+html[data-theme="theme.day"] .workstation-command-menu button kbd,
+html[data-theme="theme.day"] .context-menu-heading { color: #687a80; }
+html[data-theme="theme.day"] .menu-separator,
+html[data-theme="theme.day"] .header-divider { background: #d7e0e2; }
+html[data-theme="theme.day"] .track-add-menu summary > span,
+html[data-theme="theme.day"] .track-db,
+html[data-theme="theme.day"] .midi-clip-picker { color: #62747a; }
+html[data-theme="theme.day"] .midi-clip-picker select { color: #2d3e43; border-color: #cbd6da; background: #fff; }
+html[data-theme="theme.day"] .midi-clip-body small { color: #3f7775; }
+html[data-theme="theme.day"] .save-indicator,
+html[data-theme="theme.day"] .tempo-control,
+html[data-theme="theme.day"] .tempo-control small,
+html[data-theme="theme.day"] .time-signature span,
+html[data-theme="theme.day"] .meter-select,
+html[data-theme="theme.day"] .loop-bound,
+html[data-theme="theme.day"] .snap-toggle,
+html[data-theme="theme.day"] .monitor-control,
+html[data-theme="theme.day"] .transport-master,
+html[data-theme="theme.day"] .track-level small,
+html[data-theme="theme.day"] .track-pan,
+html[data-theme="theme.day"] .mixer-fader-value,
+html[data-theme="theme.day"] .master-output,
+html[data-theme="theme.day"] .clip-inspector small,
+html[data-theme="theme.day"] .recording-hint { color: #5e7076; }
+html[data-theme="theme.day"] .export-button { color: #76501d; border-color: #d9c395; background: #f7f0df; }
+html[data-theme="theme.day"] .export-button:hover:not(:disabled) { color: #624116; background: #eee3c7; }
+html[data-theme="theme.day"] .transport-record { color: #8f3f39; border-color: #d7aaa5; background: #fae9e7; }
+html[data-theme="theme.day"] .transport-record.recording { color: #fff; border-color: #a64843; background: #a64843; }
+html[data-theme="theme.day"] .danger-button,
+html[data-theme="theme.day"] .danger-hover:hover { color: #963e39; }
+
+html[data-theme="theme.day"] .piano-tools .midi-view-toggle.active { color: #245f5e; border-color: #99c7c3; background: #dceeed; }
+html[data-theme="theme.day"] .scale-guide-legend,
+html[data-theme="theme.day"] .song-settings > summary { color: #347c7c; }
+html[data-theme="theme.day"] .song-key-prompt { color: #805521; }
+html[data-theme="theme.day"] .piano-time-ruler span,
+html[data-theme="theme.day"] .scale-row-label { color: #5d7076; }
+html[data-theme="theme.day"] .piano-key-row.scale-inside .piano-key { color: #326c59; }
+html[data-theme="theme.day"] .piano-key-row.scale-outside .piano-key { color: #64757a; }
+html[data-theme="theme.day"] .piano-key-row.scale-inside .piano-key::after { color: #347c7c; }
+html[data-theme="theme.day"] .piano-key-row.scale-outside .piano-key::after { color: #718187; }
+html[data-theme="theme.day"] .song-settings-popover p { color: #56686e; }
+
+html[data-theme="theme.day"] .effects-section-title,
+html[data-theme="theme.day"] .effect-unit-head label,
+html[data-theme="theme.day"] .effect-browser-card strong,
+html[data-theme="theme.day"] .effect-preset-summary strong { color: #2b3d42; }
+html[data-theme="theme.day"] .effect-browser-card p,
+html[data-theme="theme.day"] .effect-browser-card small,
+html[data-theme="theme.day"] .effect-preset-summary small,
+html[data-theme="theme.day"] .effect-param,
+html[data-theme="theme.day"] .effect-target,
+html[data-theme="theme.day"] .effect-track-target,
+html[data-theme="theme.day"] .preset-scope-select,
+html[data-theme="theme.day"] .effect-browser-empty,
+html[data-theme="theme.day"] .effect-chain-empty,
+html[data-theme="theme.day"] .effect-preset-empty,
+html[data-theme="theme.day"] .effect-unavailable-note { color: #5f7177; }
+html[data-theme="theme.day"] .effect-unavailable-note { color: #79551e; }
+html[data-theme="theme.day"] .effect-preset-error { color: #8f403a; }
+html[data-theme="theme.day"] .instrument-status.status-ready,
+html[data-theme="theme.day"] .drum-source-status.assigned { color: #426b4e; }
+html[data-theme="theme.day"] .instrument-status.status-missing,
+html[data-theme="theme.day"] .drum-source-status.missing { color: #80551f; }
+html[data-theme="theme.day"] .instrument-kicker,
+html[data-theme="theme.day"] .control-caption,
+html[data-theme="theme.day"] .sample-file small,
+html[data-theme="theme.day"] .number-control > span,
+html[data-theme="theme.day"] .range-ends,
+html[data-theme="theme.day"] .pattern-action span,
+html[data-theme="theme.day"] .drum-count,
+html[data-theme="theme.day"] .drum-pad-index,
+html[data-theme="theme.day"] .drum-pattern-heading small,
+html[data-theme="theme.day"] .drum-pattern-summary,
+html[data-theme="theme.day"] .drum-step-row-name,
+html[data-theme="theme.day"] .drum-sample-label,
+html[data-theme="theme.day"] .drum-sample-label span,
+html[data-theme="theme.day"] .drum-unassigned-note,
+html[data-theme="theme.day"] .drum-gain-field output,
+html[data-theme="theme.day"] .drum-gain-field .range-ends { color: #5c6e73; }
+html[data-theme="theme.day"] .sample-file strong,
+html[data-theme="theme.day"] .instrument-heading-copy h2,
+html[data-theme="theme.day"] .drum-empty-state strong { color: #2b3d42; }
+html[data-theme="theme.day"] .instrument-field output { color: #356f67; }
+html[data-theme="theme.day"] .instrument-warning,
+html[data-theme="theme.day"] .drum-note-warning,
+html[data-theme="theme.day"] .drum-missing-note { color: #80551f; }
+html[data-theme="theme.day"] .drum-step-cell { color: #586a70; border-color: #cdd8db; background: #edf2f3; }
+html[data-theme="theme.day"] .drum-step-cell.active { color: #fff; border-color: #4c806c; background: #4c806c; }
+html[data-theme="theme.day"] .drum-empty-state > span { color: #62747a; }
+
+html[data-theme="theme.day"] .routing-panel {
+  --rp-bg: #fff;
+  --rp-raised: #f2f5f6;
+  --rp-inset: #f8fafb;
+  --rp-line: #d3dcdf;
+  --rp-line-soft: #e1e7e9;
+  --rp-text: #2b3d42;
+  --rp-muted: #596b71;
+  --rp-dim: #697a80;
+  --rp-copper: #805a25;
+  --rp-mint: #46745b;
+  --rp-red: #963f39;
+  color: #2b3d42;
+}
+html[data-theme="theme.day"] .routing-panel .rp-kicker,
+html[data-theme="theme.day"] .routing-panel .rp-bus-count small,
+html[data-theme="theme.day"] .routing-panel .rp-destination-caption,
+html[data-theme="theme.day"] .routing-panel .rp-channel-number,
+html[data-theme="theme.day"] .routing-panel .rp-bus-name-wrap > span,
+html[data-theme="theme.day"] .routing-panel .rp-meter small,
+html[data-theme="theme.day"] .routing-panel .rp-meter small span,
+html[data-theme="theme.day"] .routing-panel .rp-level-control > span,
+html[data-theme="theme.day"] .routing-panel .rp-output-control > span,
+html[data-theme="theme.day"] .routing-panel .rp-track-output > span,
+html[data-theme="theme.day"] .routing-panel .rp-sends-heading b,
+html[data-theme="theme.day"] .routing-panel .rp-no-sends,
+html[data-theme="theme.day"] .routing-panel .rp-footer,
+html[data-theme="theme.day"] .routing-panel .rp-footer-legend { color: #62747a; }
+html[data-theme="theme.day"] .routing-panel .rp-title-lockup h2,
+html[data-theme="theme.day"] .routing-panel .rp-section-heading h3,
+html[data-theme="theme.day"] .routing-panel .rp-bus-name-wrap strong,
+html[data-theme="theme.day"] .routing-panel .rp-create-copy strong,
+html[data-theme="theme.day"] .routing-panel .rp-empty-buses strong,
+html[data-theme="theme.day"] .routing-panel .rp-track-name strong { color: #293b40; }
+html[data-theme="theme.day"] .routing-panel .rp-section-heading p,
+html[data-theme="theme.day"] .routing-panel .rp-empty-buses p,
+html[data-theme="theme.day"] .routing-panel .rp-sends-heading > span,
+html[data-theme="theme.day"] .routing-panel .rp-track-name small,
+html[data-theme="theme.day"] .routing-panel .rp-level-control output,
+html[data-theme="theme.day"] .routing-panel .rp-send-level output { color: #5d7076; }
+html[data-theme="theme.day"] .routing-panel .rp-bus,
+html[data-theme="theme.day"] .routing-panel .rp-send-row,
+html[data-theme="theme.day"] .routing-panel .rp-create-row,
+html[data-theme="theme.day"] .routing-panel .rp-empty-buses { border-color: #d3dcdf; background: #f4f7f8; }
+html[data-theme="theme.day"] .routing-panel .rp-create-row input,
+html[data-theme="theme.day"] .routing-panel .rp-output-control select,
+html[data-theme="theme.day"] .routing-panel .rp-track-output select,
+html[data-theme="theme.day"] .routing-panel .rp-send-target select { color: #2b3d42; border-color: #cbd6d9; background-color: #fff; }
+html[data-theme="theme.day"] .routing-panel .rp-meter-track { border-color: #cbd6d9; background-color: #e9eff0; }
+html[data-theme="theme.day"] .routing-panel .rp-placement label { color: #52656b; border-color: #cbd6d9; background: #f0f4f5; }
+html[data-theme="theme.day"] .routing-panel .rp-placement label:has(input:checked) { color: #245e5d; border-color: #99c7c3; background: #dceeed; }
+html[data-theme="theme.day"] .routing-panel .rp-add-bus,
+html[data-theme="theme.day"] .routing-panel .rp-create-confirm,
+html[data-theme="theme.day"] .routing-panel .rp-empty-action,
+html[data-theme="theme.day"] .routing-panel .rp-text-button { color: #70501f !important; border-color: #d5c091; background: #f7f0df; }
+html[data-theme="theme.day"] .routing-panel .rp-icon-button,
+html[data-theme="theme.day"] .routing-panel .rp-state-button { color: #53666c !important; border-color: #d2dcdf; background: #f4f7f8; }
+html[data-theme="theme.day"] .routing-panel .rp-warning,
+html[data-theme="theme.day"] .routing-panel .rp-inline-warning,
+html[data-theme="theme.day"] .routing-panel .rp-invalid-destination,
+html[data-theme="theme.day"] .routing-panel .rp-form-error { color: #87443b; }
+html[data-theme="theme.day"] .routing-panel .rp-state-button.active.mute { color: #963e39 !important; border-color: #d8aaa4; background: #fae9e7; }
+html[data-theme="theme.day"] .routing-panel .rp-state-button.active.solo { color: #70501f !important; border-color: #ddca9d; background: #fbf6e8; }
+html[data-theme="theme.day"] .drum-pad-missing .drum-sample-label span,
+html[data-theme="theme.day"] .drum-pad-missing .drum-sample-label svg { color: #80551f; }
+html[data-theme="theme.day"] input::placeholder,
+html[data-theme="theme.day"] textarea::placeholder { color: #68797f; }
+html[data-theme="theme.day"] .eyebrow,
+html[data-theme="theme.day"] .project-artist,
+html[data-theme="theme.day"] .track-number,
+html[data-theme="theme.day"] .track-duration { color: #617178; }
+html[data-theme="theme.day"] .release-meta,
+html[data-theme="theme.day"] .release-header-path,
+html[data-theme="theme.day"] .project-menu-button,
+html[data-theme="theme.day"] .track-row-actions .icon-button,
+html[data-theme="theme.day"] .empty-tracks { color: #5e7076; }
+html[data-theme="theme.day"] .artwork-placeholder > svg,
+html[data-theme="theme.day"] .workstation-command-menu button kbd,
+html[data-theme="theme.day"] .context-menu-heading { color: #5a6f75; }
+html[data-theme="theme.day"] .piano-time-ruler span,
+html[data-theme="theme.day"] .scale-row-label,
+html[data-theme="theme.day"] .piano-key-row.scale-outside .piano-key::after { color: #5e7076; }
+html[data-theme="theme.day"] .appearance-claimed { color: #617178; }
