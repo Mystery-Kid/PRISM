@@ -26,6 +26,7 @@ import {
   isSamplerState,
 } from "./instrument-tracks";
 import { normalizeStoredEffectPreset } from "./effect-presets";
+import { isSongKey } from "./scales";
 
 const waveforms = new Set(["sine", "square", "sawtooth", "triangle"]);
 const trackColors = ["#f47b54", "#72c4be", "#b295e8", "#e4b85e", "#7c9ef2"];
@@ -504,6 +505,11 @@ export function migrateSongSession(value: unknown): SongSession {
     title: session.title,
     tempo: Math.min(300, Math.max(20, Math.round(finite(session.tempo, 120)))),
     timeSignature: typeof session.timeSignature === "string" ? session.timeSignature : "4/4",
+    songKey: isSongKey(session.songKey) ? { ...session.songKey } : null,
+    midiView: {
+      smartView: record(session.midiView).smartView === true,
+      scaleSnap: record(session.midiView).scaleSnap === true,
+    },
     loopRange,
     metronomeEnabled: session.metronomeEnabled === true,
     masterVolume: Math.min(1.5, Math.max(0, finite(session.masterVolume, 1))),

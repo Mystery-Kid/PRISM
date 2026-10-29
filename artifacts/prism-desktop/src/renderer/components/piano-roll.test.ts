@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getPianoNoteDragUpdate, pasteMidiNotes, splitMidiNoteAt, type PianoNoteDragState } from "./piano-roll";
+import { constrainMovedPitch, getPianoNoteDragUpdate, pasteMidiNotes, pianoClientToBeat, pianoClientToPitch, splitMidiNoteAt, type PianoNoteDragState } from "./piano-roll";
 
 const drag: PianoNoteDragState = {
   pointerStartX: 100,
@@ -37,6 +37,23 @@ test("resizing changes only duration and honors the minimum note length", () => 
   assert.equal(
     getPianoNoteDragUpdate({ ...drag, resize: true }, 0, 100, 54, true).durationBeats,
     0.25,
+  );
+});
+
+test("piano viewport coordinates include both scroll axes and remain independent of keyboard width", () => {
+  assert.equal(pianoClientToBeat(492.5, 170, 234, 81), 6.87037037037037);
+  assert.equal(pianoClientToPitch(180, 92, 375), 97);
+  assert.equal(pianoClientToPitch(92, 92, 1920), 0);
+});
+
+test("scale-snapped movement catches existing chromatic notes but leaves duration resize pitch untouched", () => {
+  const cMajor = { root: 0, scale: "major" as const };
+  assert.equal(constrainMovedPitch(61, 0, cMajor, true), 60);
+  assert.equal(constrainMovedPitch(61, 1, cMajor, true), 62);
+  assert.equal(constrainMovedPitch(61, 0, cMajor, true, true), 61);
+  assert.equal(
+    getPianoNoteDragUpdate({ ...drag, pitch: 61, resize: true }, 154, 70, 54, true, cMajor, true).pitch,
+    61,
   );
 });
 

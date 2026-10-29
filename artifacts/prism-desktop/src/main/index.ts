@@ -50,6 +50,7 @@ import { normalizeEffectChain } from "../shared/effect-definitions";
 import { validateInstrumentTrackState } from "../shared/instrument-tracks";
 import { validateAudioRouting } from "../shared/audio-routing";
 import { validateMidiArrangement } from "../shared/midi-arrangement";
+import { isMidiViewSettings, isSongKey } from "../shared/scales";
 import type {
   AudioClip,
   CreateReleaseInput,
@@ -200,6 +201,8 @@ function freshSession(releaseId: string, title: string): SongSession {
     title,
     tempo: 120,
     timeSignature: "4/4",
+    songKey: null,
+    midiView: { smartView: false, scaleSnap: false },
     loopRange: null,
     metronomeEnabled: false,
     masterVolume: 1,
@@ -659,6 +662,16 @@ function registerIpcHandlers(): void {
   );
   handle("prism:sessions:save", async (_event, updated: SongSession) => {
     const current = getSession(updated.id);
+    if (updated.songKey !== undefined && updated.songKey !== null && !isSongKey(updated.songKey)) {
+      throw new Error("The Song Key must have a supported root and scale.");
+    }
+    if (updated.midiView !== undefined && !isMidiViewSettings(updated.midiView)) {
+      throw new Error("The MIDI view settings are invalid.");
+    }
+    if ((current.songKey && updated.songKey === undefined) ||
+        (current.midiView && updated.midiView === undefined)) {
+      throw new Error("The Song Key or MIDI view settings are missing. The saved project was not changed.");
+    }
     if (updated.releaseId !== current.releaseId) throw new Error("A song cannot be moved to another release.");
     if (!Array.isArray(updated.tracks) || updated.tracks.length > 64) {
       throw new Error("The session data is invalid.");

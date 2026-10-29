@@ -62,3 +62,14 @@ jobs:
           path: artifacts/prism-desktop/release/PRISM Setup *.exe
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload installed editor evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PRISM-Installed-Editor-Evidence
+          path: |
+            ${{ runner.temp }}/prism-smoke-*/*.json
+            ${{ runner.temp }}/prism-smoke-*/*.png
+          if-no-files-found: warn
+          retention-days: 14
