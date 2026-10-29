@@ -688,7 +688,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   });
   const saveNow = async () => {
     setSaveStatus("saving");
-    try { await flushBeforeProjectAction(); setSaveStatus("saved"); setSaveError(""); }
+    try { await flushBeforeProjectAction(); setSaveStatus("saved"); setSaveError(""); setEngineError(""); }
     catch (cause) { setSaveStatus("error"); setSaveError(cause instanceof Error ? cause.message : "Session could not be saved."); }
   };
   const flushBeforeProjectAction = async () => {
@@ -718,7 +718,10 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const openProject = () => safe(async () => {
     await flushBeforeProjectAction();
     const opened = await window.prism.openProject();
-    if (opened) await onOpenProject(opened.release, opened.session);
+    if (opened) {
+      await onOpenProject(opened.release, opened.session);
+      setNotice(`Opened “${opened.session.title}” as a separate project copy. The original project was not changed.`);
+    }
   });
   const createNewProject = () => safe(async () => {
     await flushBeforeProjectAction();

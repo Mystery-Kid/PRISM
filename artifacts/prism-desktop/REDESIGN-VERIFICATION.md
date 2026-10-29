@@ -27,6 +27,12 @@ rejects invalid clip identities/timing or lost saved arrangement metadata.
 - Focused browser renderer editing journey using the isolated workstation
   harness: real UI, temporary disk persistence and real portable project logic,
   with HTTP substituted for Electron IPC and native file selection.
+  This confirmed independent portable import identities and retained audio/MIDI,
+  and that an injected disk-save error prevents New Project from navigating.
+  The pass also found a missing Bus entry (corrected), unclear import feedback
+  (a confirmation was added), and a stale save-error banner after recovery
+  (successful Save now clears it). These small fixes were checked by build/type
+  checks and source inspection rather than another full browser pass.
 - Windows GitHub Actions builds the NSIS installer, installs it, then starts that
   installed executable twice with isolated user data. Both launches exercise the
   real sandboxed preload and IPC; the second verifies persisted MIDI, tempo,
