@@ -660,3 +660,33 @@ button:disabled { opacity: .38; cursor: not-allowed !important; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+.workstation-command-menus { display: flex; align-items: center; gap: 3px; }
+.command-menu-wrap { position: relative; }
+.command-menu-trigger { height: 27px; padding: 0 8px; border: 1px solid transparent; border-radius: 5px; color: #a7a7ae; background: transparent; font-size: 10px; cursor: pointer; }
+.command-menu-trigger:hover, .command-menu-trigger[aria-expanded="true"] { border-color: #424247; color: #f0e2cd; background: #29282a; }
+.workstation-command-menu { position: absolute; z-index: 40; top: calc(100% + 5px); left: 0; min-width: 188px; padding: 5px; border: 1px solid #3c3b40; border-radius: 7px; background: #202023; box-shadow: 0 12px 32px #0009; }
+.workstation-command-menu button { width: 100%; min-height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 4px; color: #d7d6dc; background: transparent; font-size: 10px; text-align: left; cursor: pointer; }
+.workstation-command-menu button:hover:not(:disabled) { background: #333237; color: #fff; }
+.workstation-command-menu button:disabled { opacity: .4; cursor: default; }
+.workstation-command-menu button kbd { margin-left: auto; color: #88878e; font: 9px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.workstation-command-menu hr { margin: 4px 2px; border: 0; border-top: 1px solid #ffffff12; }
+.edit-tool-group { display: flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid #343438; border-radius: 6px; background: #18181a; }
+.edit-tool-button { min-height: 23px; padding: 0 6px; border: 1px solid transparent; border-radius: 4px; color: #85858d; background: transparent; font-size: 8px; cursor: pointer; }
+.edit-tool-button:hover { color: #e5e3dd; }
+.edit-tool-button.active { border-color: #6d573b; color: #f0d5ad; background: #392e22; }
+.timeline-lane.tool-erase .audio-clip, .timeline-lane.tool-erase .midi-note, .eraser-target { cursor: not-allowed; }
+.timeline-lane.tool-split .audio-clip { cursor: crosshair; }
+.workstation-context-backdrop { position: fixed; inset: 0; z-index: 80; background: transparent; }
+.workstation-context-menu { position: fixed; z-index: 81; width: 180px; padding: 5px; border: 1px solid #3d3c41; border-radius: 7px; background: #202023; box-shadow: 0 12px 32px #0009; }
+.context-menu-heading { display: block; padding: 5px 8px 7px; color: #898890; font-size: 8px; letter-spacing: .09em; text-transform: uppercase; }
+.workstation-context-menu button { width: 100%; min-height: 29px; padding: 0 8px; border: 0; border-radius: 4px; color: #dddce2; background: transparent; font-size: 10px; text-align: left; cursor: pointer; }
+.workstation-context-menu button:hover { background: #343338; }
+.workstation-context-menu .context-danger { color: #d9948c; }
+
+@media (max-width: 690px) {
+  .workstation-command-menus { gap: 0; }
+  .command-menu-trigger { padding: 0 5px; font-size: 9px; }
+  .edit-tool-button { padding: 0 4px; font-size: 7px; }
+  .edit-tool-group { gap: 0; }
+}
