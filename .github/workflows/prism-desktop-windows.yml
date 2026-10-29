@@ -36,7 +36,7 @@ jobs:
       - name: Run PRISM audio and persistence tests
         run: pnpm --filter @workspace/prism-desktop run test
 
-      - name: Check MIDI audio rendering and transport
+      - name: Check audio rendering, effects, and transport
         shell: pwsh
         run: |
           $env:CHROMIUM_PATH = Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"

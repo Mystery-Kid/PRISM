@@ -1,5 +1,6 @@
 import type {
   AudioClip,
+  EffectChainPreset,
   EffectState,
   InstrumentState,
   MidiNote,
@@ -9,8 +10,9 @@ import type {
   SongSession,
   Track,
 } from "./types";
+import { normalizeEffectState } from "./effect-definitions";
+import { normalizeStoredEffectPreset } from "./effect-presets";
 
-const effectTypes = new Set(["equalizer", "reverb", "delay", "compressor"]);
 const waveforms = new Set(["sine", "square", "sawtooth", "triangle"]);
 const trackColors = ["#f47b54", "#72c4be", "#b295e8", "#e4b85e", "#7c9ef2"];
 const releaseTypes = new Set<ReleaseType>(["Single", "EP", "Album", "LP", "Other"]);
@@ -24,6 +26,7 @@ export type ProjectLibrary = {
   releases: Release[];
   sessions: SongSession[];
   assets: StoredAsset[];
+  effectPresets: EffectChainPreset[];
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -159,26 +162,23 @@ export function migrateProjectLibrary(value: unknown): ProjectLibrary {
     throw new Error("The PRISM project library contains duplicate media IDs.");
   }
 
-  return { ...source, version: 3, releases, sessions, assets } as ProjectLibrary;
+  // Core-reliability and effects builds both used version 3. A missing preset
+  // collection is valid legacy data; an explicitly malformed one is not.
+  if (source.effectPresets !== undefined && !Array.isArray(source.effectPresets)) {
+    throw new Error("The PRISM effect-preset library is damaged; the project file was not changed.");
+  }
+  const effectPresets = Array.isArray(source.effectPresets)
+    ? source.effectPresets.map(normalizeStoredEffectPreset)
+    : [];
+  return { ...source, version: 3, releases, sessions, assets, effectPresets } as ProjectLibrary;
 }
 
 function migrateEffects(value: unknown): EffectState[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
     const effect = record(item);
-    if (typeof effect.id !== "string" || !effectTypes.has(String(effect.type))) return [];
-    const rawParameters = record(effect.parameters);
-    const parameters = Object.fromEntries(
-      Object.entries(rawParameters).filter(([, current]) =>
-        typeof current === "number" && Number.isFinite(current),
-      ),
-    ) as Record<string, number>;
-    return [{
-      id: effect.id,
-      type: effect.type as EffectState["type"],
-      enabled: effect.enabled !== false,
-      parameters,
-    }];
+    const normalized = normalizeEffectState(effect);
+    return normalized ? [normalized] : [];
   });
 }
 

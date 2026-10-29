@@ -84,6 +84,7 @@ test("version-one project library upgrades to the current schema", () => {
     releases: [],
     sessions: [],
     assets: [],
+    effectPresets: [],
   });
 });
 
@@ -123,4 +124,28 @@ test("project migration preserves the saved order of songs in an album", () => {
   const reopened = migrateProjectLibrary(JSON.parse(JSON.stringify(migrated)));
 
   assert.deepEqual(reopened.releases[0].songIds, ["song-b", "song-a"]);
+});
+
+test("core version-three libraries without presets remain compatible with effects builds", () => {
+  const migrated = migrateProjectLibrary({ version: 3, releases: [], sessions: [], assets: [] });
+  assert.deepEqual(migrated.effectPresets, []);
+});
+
+test("project migration preserves stored effect presets across reopening", () => {
+  const preset = {
+    id: "preset-1", name: "Saved chain", version: 1, scope: "global",
+    projectId: null, effects: [],
+    createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const migrated = migrateProjectLibrary({
+    version: 3, releases: [], sessions: [], assets: [], effectPresets: [preset],
+  });
+  const reopened = migrateProjectLibrary(JSON.parse(JSON.stringify(migrated)));
+  assert.deepEqual(reopened.effectPresets, [preset]);
+});
+
+test("project migration rejects malformed preset collections rather than clearing them", () => {
+  assert.throws(() => migrateProjectLibrary({
+    version: 3, releases: [], sessions: [], assets: [], effectPresets: null,
+  }), /effect-preset library is damaged/);
 });

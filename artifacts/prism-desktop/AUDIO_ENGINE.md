@@ -65,3 +65,8 @@ overdubbing as verified until it passes a real Windows-device test.
 
 See [MIDI_VERIFICATION.md](./MIDI_VERIFICATION.md) for the automated checks,
 signal-path audit, and the separate physical Windows-device acceptance checklist.
+
+## Effects verification
+
+See [EFFECTS.md](./EFFECTS.md) for the native processor audit, chain behavior,
+parameter limits, versioned presets, and unavailable plug-in formats.

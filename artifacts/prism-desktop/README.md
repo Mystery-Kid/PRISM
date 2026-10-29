@@ -30,6 +30,6 @@ PRISM stores its library and copied media in the operating system's Electron app
 ## Current scope and limitations
 
 - The project library, local persistence, release/song navigation, artwork selection, and basic audio import/playback are implemented incrementally.
+- Built-in instrument tracks, ordered native effect chains, reusable effect presets, recording, and WAV export are implemented with the local Web Audio engine. See [EFFECTS.md](./EFFECTS.md) for native processors, preset storage, import safety, and plug-in limits.
 - The supplied official PRISM PNG is used unchanged in the interface; Windows and Linux app icons are generated from it at standard icon sizes without recoloring or cropping the source.
-- Audio support depends on Chromium's local Web Audio decoding. This is not a claim of ASIO, Core Audio, JACK, native plug-in, or professional low-latency support.
-- Recording, MIDI instruments, effects, project backup restoration, and audio export are not enabled yet.
+- Audio support depends on Chromium's local Web Audio engine. This is not a claim of ASIO, Core Audio, JACK, third-party native plug-in, or professional low-latency support; real device, latency, and installed-app behavior require verification on the target computer.

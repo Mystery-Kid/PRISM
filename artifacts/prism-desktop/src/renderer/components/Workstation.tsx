@@ -5,8 +5,6 @@ import {
 } from "lucide-react";
 import type {
   AudioClip,
-  EffectState,
-  EffectType,
   InstrumentState,
   MidiNote,
   SongSession,
@@ -15,6 +13,7 @@ import type {
 import { AudioEngine, type AudioDevice, type AudioEngineSnapshot } from "../audio/AudioEngine";
 import { secondsPerBeat } from "../audio/time";
 import { getPianoNoteDragUpdate, type PianoNoteDragState } from "./piano-roll";
+import { EffectsPanel } from "./EffectsPanel";
 import prismLogo from "../assets/prism-logo.png";
 
 type WorkstationProps = {
@@ -25,15 +24,6 @@ type WorkstationProps = {
 };
 type Meter = { peak: number; rms: number };
 const colors = ["#d7a568", "#77a99e", "#a58ac4", "#c77979", "#829fc2"];
-const effectDefaults: Record<EffectType, Record<string, number>> = {
-  equalizer: { frequency: 1000, gain: 0, q: 1 },
-  reverb: { decay: 1.6, mix: 0.2 },
-  delay: { time: 0.25, feedback: 0.25, mix: 0.2 },
-  compressor: { threshold: -18, ratio: 4, attack: 0.003, release: 0.25, knee: 12 },
-};
-const effectLabels: Record<EffectType, string> = {
-  equalizer: "Equalizer", reverb: "Reverb", delay: "Delay", compressor: "Compressor",
-};
 const emptySnapshot: AudioEngineSnapshot = {
   status: "stopped",
   error: null,
@@ -448,22 +438,6 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     setSession((current) => ({ ...current, tracks: current.tracks.map((item) => item.id === track.id ? { ...item, clips: [...item.clips, right] } : item) }));
     setSelectedClip(right.id);
   };
-  const addEffect = (trackId: string | null, type: EffectType) => {
-    const effect: EffectState = { id: crypto.randomUUID(), type, enabled: true, parameters: { ...effectDefaults[type] } };
-    setSession((current) => trackId
-      ? { ...current, tracks: current.tracks.map((track) => track.id === trackId ? { ...track, effects: [...track.effects, effect] } : track) }
-      : { ...current, masterEffects: [...current.masterEffects, effect] });
-  };
-  const updateEffect = (trackId: string | null, effectId: string, update: Partial<EffectState>) => {
-    setSession((current) => trackId
-      ? { ...current, tracks: current.tracks.map((track) => track.id === trackId ? { ...track, effects: track.effects.map((effect) => effect.id === effectId ? { ...effect, ...update } : effect) } : track) }
-      : { ...current, masterEffects: current.masterEffects.map((effect) => effect.id === effectId ? { ...effect, ...update } : effect) });
-  };
-  const updateEffectParameter = (trackId: string | null, effect: EffectState, key: string, value: number) =>
-    updateEffect(trackId, effect.id, { parameters: { ...effect.parameters, [key]: value } });
-  const removeEffect = (trackId: string | null, effectId: string) => setSession((current) => trackId
-    ? { ...current, tracks: current.tracks.map((track) => track.id === trackId ? { ...track, effects: track.effects.filter((effect) => effect.id !== effectId) } : track) }
-    : { ...current, masterEffects: current.masterEffects.filter((effect) => effect.id !== effectId) });
   const exportWav = () => safe(async () => {
     if (!engine) return;
     setBusy("export");
@@ -592,7 +566,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       <div className="arrangement-footer"><span>{session.tracks.length} {session.tracks.length === 1 ? "track" : "tracks"}</span><span>Local project audio · {session.timeSignature} · {session.tempo} BPM</span></div>
     </section>
 
-    <section className="workstation-bottom">
+    <section className={`workstation-bottom ${panel === "effects" ? "effects-open" : ""}`}>
       <nav className="lower-panel-tabs" aria-label="Workstation panels">
         {(["mixer", "clip", "piano", "effects", "devices"] as const).map((tab) => <button key={tab} className={`lower-tab ${panel === tab ? "active" : ""}`} data-testid={`tab-${tab}`} onClick={() => setPanel(tab)}>{tab === "mixer" ? <SlidersHorizontal size={13} /> : tab === "clip" ? <AudioLines size={13} /> : tab === "piano" ? <Music2 size={13} /> : tab === "effects" ? <Sparkles size={13} /> : <Headphones size={13} />}{tab === "clip" ? "Clip" : tab === "devices" ? "I/O" : tab[0].toUpperCase() + tab.slice(1)}</button>)}
       </nav>
@@ -645,11 +619,14 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         </div>
         {!selectedInstrument && <div className="piano-hint">Choose an instrument track to edit notes. Click the grid to place a note.</div>}
       </div>}
-      {panel === "effects" && <div className="effects-panel">
-        <div className="effect-scope"><span>Track chain</span><select data-testid="select-effect-track" value={selectedTrack} onChange={(event) => setSelectedTrack(event.target.value)}>{session.tracks.map((track) => <option key={track.id} value={track.id}>{track.name}</option>)}</select></div>
-        <EffectChain effects={session.tracks.find((track) => track.id === selectedTrack)?.effects ?? []} testPrefix="track-effect" onAdd={(type) => addEffect(selectedTrack || null, type)} onChange={(id, update) => updateEffect(selectedTrack || null, id, update)} onParam={(effect, key, value) => updateEffectParameter(selectedTrack || null, effect, key, value)} onRemove={(id) => removeEffect(selectedTrack || null, id)} />
-        <div className="effect-scope master-scope"><span>Master chain</span><EffectChain effects={session.masterEffects} testPrefix="master-effect" onAdd={(type) => addEffect(null, type)} onChange={(id, update) => updateEffect(null, id, update)} onParam={(effect, key, value) => updateEffectParameter(null, effect, key, value)} onRemove={(id) => removeEffect(null, id)} /></div>
-      </div>}
+      {panel === "effects" && <EffectsPanel
+        session={session}
+        selectedTrackId={selectedTrack}
+        onSelectTrack={setSelectedTrack}
+        onUpdateTrackEffects={(trackId, effects) => updateTrack(trackId, { effects })}
+        onUpdateMasterEffects={(effects) => setSession((current) => ({ ...current, masterEffects: effects }))}
+        onNotice={setNotice}
+      />}
       {panel === "devices" && <div className="devices-panel">
         <label>Audio input<select data-testid="select-audio-input" value={inputDevice} onChange={(event) => { setInputDevice(event.target.value); localStorage.setItem("prism.audioInput", event.target.value); }}>{inputDevices.map((device) => <option key={device.id} value={device.id}>{device.label}</option>)}</select></label>
           <label>Audio output<select data-testid="select-audio-output" value={outputDevice} onChange={(event) => {
@@ -776,30 +753,6 @@ function MeterBar({ meter, id }: { meter?: Meter; id: string }) {
   return <div className="mixer-meter" data-testid={`meter-${id}`} role="meter" aria-label={`${id} output level`} aria-valuemin={0} aria-valuemax={1} aria-valuenow={peak}><span style={{ transform: `scaleX(${peak})` }} /><i style={{ left: `${peak * 100}%` }} /></div>;
 }
 
-function EffectChain({ effects, testPrefix, onAdd, onChange, onParam, onRemove }: {
-  effects: EffectState[]; testPrefix: string; onAdd: (type: EffectType) => void;
-  onChange: (id: string, update: Partial<EffectState>) => void; onParam: (effect: EffectState, key: string, value: number) => void;
-  onRemove: (id: string) => void;
-}) {
-  return <div className="effect-chain">
-    <div className="effect-add">{(["equalizer", "reverb", "delay", "compressor"] as const).map((type) => <button key={type} className="button button-subtle" data-testid={`${testPrefix}-add-${type}`} onClick={() => onAdd(type)}><Plus size={12} />{effectLabels[type]}</button>)}</div>
-    {effects.map((effect) => <div className={`effect-unit ${effect.enabled ? "enabled" : ""}`} key={effect.id}>
-      <div className="effect-unit-head"><label><input data-testid={`${testPrefix}-toggle-${effect.id}`} type="checkbox" checked={effect.enabled} onChange={(event) => onChange(effect.id, { enabled: event.target.checked })} />{effectLabels[effect.type]}</label><button className="icon-button compact" data-testid={`${testPrefix}-remove-${effect.id}`} aria-label={`Remove ${effectLabels[effect.type]}`} onClick={() => onRemove(effect.id)}><X size={12} /></button></div>
-      {Object.entries(effect.parameters).filter(([key]) => key !== "_remove").map(([key, value]) => {
-        const limits = parameterLimits(effect.type, key);
-        return <label className="effect-param" key={key}><span>{key}</span><input data-testid={`${testPrefix}-${effect.id}-${key}`} type="range" min={limits[0]} max={limits[1]} step={limits[2]} value={value} onChange={(event) => onParam(effect, key, Number(event.target.value))} /><small>{value.toFixed(value < 1 ? 2 : 0)}</small></label>;
-      })}
-    </div>)}
-    {effects.length === 0 && <span className="effect-empty">Add an effect to shape this signal.</span>}
-  </div>;
-}
-
-function parameterLimits(type: EffectType, key: string): [number, number, number] {
-  if (type === "equalizer") return key === "frequency" ? [20, 20000, 10] : key === "gain" ? [-24, 24, .5] : [.1, 18, .1];
-  if (type === "reverb") return key === "decay" ? [.15, 4, .05] : [0, 1, .01];
-  if (type === "delay") return key === "time" ? [.01, 1.5, .01] : key === "feedback" ? [0, .85, .01] : [0, 1, .01];
-  return key === "threshold" ? [-60, 0, 1] : key === "ratio" ? [1, 20, .5] : key === "attack" ? [.001, 1, .001] : key === "release" ? [.01, 2, .01] : [0, 40, 1];
-}
 function beatsPerBar(meter: string): number { const [top] = meter.split("/").map(Number); return top || 4; }
 function clamp(value: number, low: number, high: number): number { return Math.max(low, Math.min(high, Number.isFinite(value) ? value : low)); }
 function formatSeconds(seconds: number): string { return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`; }

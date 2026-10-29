@@ -3,6 +3,8 @@ import type {
   AppBridge,
   CreateReleaseInput,
   CreateSongInput,
+  EffectChainPreset,
+  EffectChainPresetFile,
   SongSession,
   UpdateReleaseInput,
 } from "@shared/types";
@@ -31,6 +33,16 @@ const bridge: AppBridge = {
     ipcRenderer.invoke("prism:songs:reorder", releaseId, songIds),
   saveSession: (session: SongSession) =>
     ipcRenderer.invoke("prism:sessions:save", session),
+  listEffectPresets: (projectId: string) =>
+    ipcRenderer.invoke("prism:effects:presets:list", projectId),
+  saveEffectPreset: (preset: Omit<EffectChainPreset, "createdAt" | "updatedAt">) =>
+    ipcRenderer.invoke("prism:effects:presets:save", preset),
+  deleteEffectPreset: (presetId: string, projectId: string) =>
+    ipcRenderer.invoke("prism:effects:presets:delete", presetId, projectId),
+  importEffectPreset: () =>
+    ipcRenderer.invoke("prism:effects:presets:import"),
+  exportEffectPreset: (preset: EffectChainPresetFile) =>
+    ipcRenderer.invoke("prism:effects:presets:export", preset),
   chooseArtwork: (releaseId) =>
     ipcRenderer.invoke("prism:artwork:choose", releaseId),
   selectArtwork: () => ipcRenderer.invoke("prism:artwork:select"),

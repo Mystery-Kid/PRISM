@@ -10,10 +10,68 @@ export type TrackGraph = {
   dispose(): void;
 };
 
+type EffectChain = {
+  first: AudioNode;
+  handles: EffectHandle[];
+  outputLevel: GainNode;
+};
+
 function sameEffectLayout(left: EffectState[], right: EffectState[]): boolean {
   return left.length === right.length && left.every(
     (effect, index) => effect.id === right[index]?.id && effect.type === right[index]?.type,
   );
+}
+
+function buildEffectChain(
+  context: BaseAudioContext,
+  input: AudioNode,
+  destination: AudioNode,
+  effects: EffectState[],
+  initialLevel: number,
+): EffectChain {
+  const handles = effects.map((effect) => createEffectHandle(context, effect));
+  const outputLevel = context.createGain();
+  outputLevel.gain.setValueAtTime(initialLevel, context.currentTime);
+  let cursor: AudioNode = input;
+  for (const handle of handles) {
+    cursor.connect(handle.input);
+    cursor = handle.output;
+  }
+  const first = handles[0]?.input ?? outputLevel;
+  cursor.connect(outputLevel);
+  outputLevel.connect(destination);
+  return { first, handles, outputLevel };
+}
+
+function fadeGain(context: BaseAudioContext, gain: GainNode, target: number): void {
+  const now = context.currentTime;
+  gain.gain.cancelScheduledValues(now);
+  gain.gain.setValueAtTime(gain.gain.value, now);
+  gain.gain.linearRampToValueAtTime(target, now + 0.025);
+}
+
+function disposeEffectChain(input: AudioNode, chain: EffectChain): void {
+  try {
+    input.disconnect(chain.first);
+  } catch {
+    // The graph may already be closing while a crossfade is being retired.
+  }
+  chain.handles.forEach((handle) => handle.dispose());
+  chain.outputLevel.disconnect();
+}
+
+function transitionEffectChain(
+  context: BaseAudioContext,
+  input: AudioNode,
+  destination: AudioNode,
+  previous: EffectChain,
+  effects: EffectState[],
+): EffectChain {
+  const next = buildEffectChain(context, input, destination, effects, 0);
+  fadeGain(context, previous.outputLevel, 0);
+  fadeGain(context, next.outputLevel, 1);
+  window.setTimeout(() => disposeEffectChain(input, previous), 100);
+  return next;
 }
 
 export function createTrackGraph(
@@ -34,30 +92,16 @@ export function createTrackGraph(
   analyser.connect(destination);
 
   let effects = track.effects;
-  let handles: EffectHandle[] = [];
-
-  const buildEffectChain = (next: EffectState[]) => {
-    input.disconnect();
-    handles.forEach((handle) => handle.dispose());
-    handles = next.map((effect) => createEffectHandle(context, effect));
-    let cursor: AudioNode = input;
-    for (const handle of handles) {
-      cursor.connect(handle.input);
-      cursor = handle.output;
-    }
-    cursor.connect(pan);
-    effects = next;
-  };
-
-  buildEffectChain(track.effects);
+  let chain = buildEffectChain(context, input, pan, track.effects, 1);
 
   const update = (updated: Track, isAudible: boolean) => {
     if (!sameEffectLayout(effects, updated.effects)) {
-      buildEffectChain(updated.effects);
+      chain = transitionEffectChain(context, input, pan, chain, updated.effects);
     } else {
-      updated.effects.forEach((effect, index) => handles[index]?.update(effect));
+      updated.effects.forEach((effect, index) => chain.handles[index]?.update(effect));
       effects = updated.effects;
     }
+    effects = updated.effects;
     fader.gain.setTargetAtTime(
       isAudible && !updated.muted ? updated.volume : 0,
       context.currentTime,
@@ -79,7 +123,7 @@ export function createTrackGraph(
       pan.disconnect();
       fader.disconnect();
       analyser.disconnect();
-      handles.forEach((handle) => handle.dispose());
+      disposeEffectChain(input, chain);
     },
   };
 }
@@ -108,22 +152,7 @@ export function createMasterGraph(
   analyser.connect(destination);
 
   let effects = initialEffects;
-  let handles: EffectHandle[] = [];
-
-  const buildEffectChain = (next: EffectState[]) => {
-    input.disconnect();
-    handles.forEach((handle) => handle.dispose());
-    handles = next.map((effect) => createEffectHandle(context, effect));
-    let cursor: AudioNode = input;
-    for (const handle of handles) {
-      cursor.connect(handle.input);
-      cursor = handle.output;
-    }
-    cursor.connect(fader);
-    effects = next;
-  };
-
-  buildEffectChain(initialEffects);
+  let chain = buildEffectChain(context, input, fader, initialEffects, 1);
 
   return {
     input,
@@ -131,11 +160,11 @@ export function createMasterGraph(
     analyser,
     update(nextVolume, nextEffects) {
       if (!sameEffectLayout(effects, nextEffects)) {
-        buildEffectChain(nextEffects);
+        chain = transitionEffectChain(context, input, fader, chain, nextEffects);
       } else {
-        nextEffects.forEach((effect, index) => handles[index]?.update(effect));
-        effects = nextEffects;
+        nextEffects.forEach((effect, index) => chain.handles[index]?.update(effect));
       }
+      effects = nextEffects;
       fader.gain.setTargetAtTime(
         Math.max(0, Math.min(1.5, nextVolume)),
         context.currentTime,
@@ -146,7 +175,7 @@ export function createMasterGraph(
       input.disconnect();
       fader.disconnect();
       analyser.disconnect();
-      handles.forEach((handle) => handle.dispose());
+      disposeEffectChain(input, chain);
     },
   };
 }

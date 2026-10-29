@@ -14,3 +14,14 @@ graph and clock to run and the transport checks to pass.
 **How to apply:** Use silent-sink signal tests for automated graph/timing checks.
 Keep those results separate from audible output, device latency, driver, and
 installed Windows-app verification, which require actual hardware.
+
+Renderer tests using a substitute desktop bridge validate UI interactions, not
+Electron file dialogs or the installed application's IPC boundary.
+
+**Why:** A browser can exercise preset controls and audio processing without
+running Electron. Treating that as installed-app verification would overstate
+what was tested.
+
+**How to apply:** Report browser/UI, storage, packaging, and physical-device
+checks separately; retain a real installed-app acceptance check for file-dialog
+and device behavior.
