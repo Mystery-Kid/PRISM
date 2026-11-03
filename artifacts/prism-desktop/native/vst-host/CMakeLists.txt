@@ -1,0 +1,36 @@
+cmake_minimum_required(VERSION 3.25)
+project(prism_vst_host LANGUAGES C CXX)
+include(FetchContent)
+option(PRISM_VST_TEST_FIXTURES "Build MIT MDA plugins for isolated tests only; never package them" OFF)
+set(SMTG_ENABLE_VST3_PLUGIN_EXAMPLES ${PRISM_VST_TEST_FIXTURES} CACHE BOOL "" FORCE)
+set(SMTG_MDA_VST3_VST2_COMPATIBLE OFF CACHE BOOL "" FORCE)
+set(SMTG_ENABLE_VST3_HOSTING_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(SMTG_ENABLE_VSTGUI_SUPPORT OFF CACHE BOOL "" FORCE)
+set(SMTG_CREATE_PLUGIN_LINK OFF CACHE BOOL "" FORCE)
+set(SMTG_RUN_VST_VALIDATOR OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(vst3sdk
+  GIT_REPOSITORY https://github.com/steinbergmedia/vst3sdk.git
+  GIT_TAG 20d1036bd50d5b67a1595e25b8aa3ef02d45bea8
+  GIT_SUBMODULES base cmake pluginterfaces public.sdk
+  GIT_SUBMODULES_RECURSE OFF)
+FetchContent_MakeAvailable(vst3sdk)
+set(SDK_ROOT "${vst3sdk_SOURCE_DIR}")
+foreach(part IN ITEMS base cmake pluginterfaces public.sdk)
+  configure_file("${SDK_ROOT}/${part}/LICENSE.txt" "${CMAKE_BINARY_DIR}/notices/${part}-LICENSE.txt" COPYONLY)
+endforeach()
+configure_file("${SDK_ROOT}/LICENSE.txt" "${CMAKE_BINARY_DIR}/notices/VST3-SDK-LICENSE.txt" COPYONLY)
+add_executable(prism-vst-host main.cpp
+  "${SDK_ROOT}/public.sdk/source/common/memorystream.cpp"
+  "${SDK_ROOT}/public.sdk/source/vst/hosting/plugprovider.cpp")
+target_compile_features(prism-vst-host PRIVATE cxx_std_17)
+target_include_directories(prism-vst-host PRIVATE "${SDK_ROOT}")
+target_link_libraries(prism-vst-host PRIVATE sdk_hosting)
+if(WIN32)
+  target_sources(prism-vst-host PRIVATE "${SDK_ROOT}/public.sdk/source/vst/hosting/module_win32.cpp")
+  target_link_libraries(prism-vst-host PRIVATE ole32)
+elseif(UNIX AND NOT APPLE)
+  target_sources(prism-vst-host PRIVATE "${SDK_ROOT}/public.sdk/source/vst/hosting/module_linux.cpp")
+  target_link_libraries(prism-vst-host PRIVATE dl pthread)
+else()
+  message(FATAL_ERROR "Only Windows x64 is intended for distribution. Linux is a development feasibility check.")
+endif()

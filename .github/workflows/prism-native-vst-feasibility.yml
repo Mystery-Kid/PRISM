@@ -1,0 +1,41 @@
+name: Check PRISM native VST3 feasibility
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "artifacts/prism-desktop/native/**"
+      - "artifacts/prism-desktop/src/shared/native-contract.ts"
+      - "artifacts/prism-desktop/scripts/test-native-vst.ts"
+      - ".github/workflows/prism-native-vst-feasibility.yml"
+jobs:
+  native-processing:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install workspace dependencies
+        run: pnpm install --filter @workspace/prism-desktop... --frozen-lockfile
+      - name: Compile isolated native host and legal test plugins
+        shell: pwsh
+        run: |
+          cmake -S artifacts/prism-desktop/native/vst-host -B generated-artifacts/prism-native-build -A x64 -DPRISM_VST_TEST_FIXTURES=ON
+          if ($LASTEXITCODE -ne 0) { throw "Native configure failed." }
+          cmake --build generated-artifacts/prism-native-build --config Release --target prism-vst-host mda-vst3 --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "Native compilation failed." }
+      - name: Process PRISM MIDI and PCM through external native instrument and effect
+        shell: pwsh
+        run: |
+          $hostExe = Resolve-Path generated-artifacts/prism-native-build/Release/prism-vst-host.exe
+          $plugin = Resolve-Path generated-artifacts/prism-native-build/VST3/Release/mda-vst3.vst3
+          pnpm --filter @workspace/prism-desktop exec tsx scripts/test-native-vst.ts "$hostExe" "$plugin" 2>&1 | Tee-Object generated-artifacts/prism-native-evidence.txt
+          if ($LASTEXITCODE -ne 0) { throw "Native VST3 feasibility processing failed." }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: PRISM-Native-Feasibility-Evidence
+          path: generated-artifacts/prism-native-evidence.txt
