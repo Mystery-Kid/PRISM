@@ -39,6 +39,28 @@ test("stretch bounds and malformed PCM fail explicitly", () => {
   assert.throws(() => stretchAudio([source, new Float32Array(50)], 48000, 1.5), /matching/);
   assert.throws(() => stretchAudio([Float32Array.of(Number.NaN)], 48000, 1), /finite/);
 });
+test("silent and short sources retain exact requested length and finite samples", () => {
+  for (const source of [new Float32Array(2400), Float32Array.of(.8, -.8)]) {
+    for (const ratio of [.5, 2]) {
+      const output = stretchAudio([source], 8000, ratio)[0];
+      assert.equal(output.length, Math.round(source.length*ratio));
+      assert.ok(output.every(Number.isFinite));
+    }
+  }
+});
+test("unsupported tracks stay intact; fractional tempo and adaptation metadata survive migration", () => {
+  const before = fixture();
+  before.tracks[0].type = "unsupported";
+  const next = applyTempoChange(before, 82, new Map([["source", { id: "derived", duration: 4.5, waveform: [.4], ratio: 1.5 }]]));
+  assert.deepEqual(next.tracks[0].clips, before.tracks[0].clips);
+  const library = { version: 8, releases: [], assets: [], sessions: [applyTempoChange(fixture(), 93.5,
+    new Map([["source", { id: "derived", duration: 4.5, waveform: [.4], ratio: 1.5 }]]))] };
+  const loaded = migrateProjectLibrary(JSON.parse(JSON.stringify(library)));
+  assert.equal(loaded.sessions[0].tempo, 93.5);
+  assert.deepEqual(loaded.sessions[0].tracks[0].clips[0].tempoAdaptation, library.sessions[0].tracks[0].clips[0].tempoAdaptation);
+  library.sessions[0].tracks[0].clips[0].tempoAdaptation!.lengthRatio = Number.NaN;
+  assert.throws(() => migrateProjectLibrary(library), /damaged/);
+});
 test("tempo-only retains audio seconds and source; MIDI keeps beats across BPM and meter", () => {
   const before = fixture(), next = applyTempoChange(before, 93.5);
   assert.deepEqual(next.tracks, before.tracks);

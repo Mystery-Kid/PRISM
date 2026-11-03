@@ -1675,7 +1675,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       <div className="transport-settings">
         <label className="tempo-control"><span>Tempo</span><input data-testid="input-tempo" aria-label="Tempo in beats per minute" type="number" min={20} max={300} disabled={recording || !!busy} value={tempoDraft} onChange={(event) => setTempoDraft(event.target.value)} onBlur={requestTempoChange} onKeyDown={(event) => {
           if (event.key === "Enter") { event.preventDefault(); requestTempoChange(); }
-          if (event.key === "Escape") { setTempoDraft(String(session.tempo)); event.currentTarget.blur(); }
+          if (event.key === "Escape") { event.preventDefault(); setTempoDraft(String(session.tempo)); }
         }} /><small>BPM</small></label>
         <label className="meter-select"><span>Meter</span><select data-testid="select-time-signature" value={session.timeSignature} onChange={(event) => setSession((current) => ({ ...current, timeSignature: event.target.value }))}>{["4/4", "3/4", "6/8", "5/4", "7/8"].map((meter) => <option key={meter}>{meter}</option>)}</select></label>
         <button className={`icon-button compact ${session.metronomeEnabled ? "is-active" : ""}`} data-testid="button-metronome" title="Toggle metronome" aria-pressed={session.metronomeEnabled} onClick={() => setSession((current) => ({ ...current, metronomeEnabled: !current.metronomeEnabled }))}><AudioLines size={16} /></button>
