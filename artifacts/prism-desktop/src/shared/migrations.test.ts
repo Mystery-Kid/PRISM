@@ -2,6 +2,36 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { migrateProjectLibrary, migrateSongSession } from "./migrations";
 
+test("song key and independent MIDI view settings round-trip without rewriting notes", () => {
+  const original = {
+    id: "song-key", releaseId: "release", title: "Scale session",
+    songKey: { root: 9, scale: "naturalMinor" }, midiView: { smartView: true, scaleSnap: true },
+    tracks: [{ id: "lead", type: "instrument", name: "Lead", notes: [
+      { id: "chromatic", pitch: 61, startBeat: 8.5, durationBeats: 2, velocity: 87, midiClipId: "group" },
+    ], midiClips: [{ id: "group", name: "Original", startBeat: 8, durationBeats: 4 }] }],
+  };
+  const migrated = migrateSongSession(original);
+  assert.deepEqual(migrated.songKey, original.songKey);
+  assert.deepEqual(migrated.midiView, original.midiView);
+  assert.deepEqual(migrated.tracks[0]!.notes, original.tracks[0]!.notes);
+  const toggled = migrateSongSession({ ...migrated, songKey: { root: 0, scale: "major" },
+    midiView: { smartView: false, scaleSnap: false } });
+  assert.deepEqual(toggled.tracks, migrated.tracks);
+  assert.deepEqual(migrateSongSession(JSON.parse(JSON.stringify(toggled))), toggled);
+});
+
+test("legacy or invalid key settings stay unrestricted and keep existing note events", () => {
+  const legacy = { id: "song", releaseId: "release", title: "Legacy", tracks: [
+    { id: "track", notes: [{ id: "note", pitch: 73, startBeat: 2, durationBeats: 1, velocity: 93 }] },
+  ] };
+  for (const songKey of [undefined, { root: 12, scale: "major" }, { root: 0, scale: "unknown" }]) {
+    const result = migrateSongSession({ ...legacy, songKey });
+    assert.equal(result.songKey, null);
+    assert.deepEqual(result.midiView, { smartView: false, scaleSnap: false });
+    assert.deepEqual(result.tracks[0]!.notes, legacy.tracks[0]!.notes);
+  }
+});
+
 test("version-one song shape migrates while preserving clips and assets", () => {
   const migrated = migrateSongSession({
     id: "session-1",

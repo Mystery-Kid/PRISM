@@ -177,12 +177,18 @@ export type Track = {
   sends: BusSend[];
 };
 
+export type SongKey = { root: number; scale: "major" | "naturalMinor" };
+export type MidiViewSettings = { smartView: boolean; scaleSnap: boolean };
+
 export type SongSession = {
   id: string;
   releaseId: string;
   title: string;
   tempo: number;
   timeSignature: string;
+  /** Song-level musical reference; never inferred from or applied to existing notes. */
+  songKey?: SongKey | null;
+  midiView?: MidiViewSettings;
   loopRange: LoopRange | null;
   metronomeEnabled: boolean;
   masterVolume: number;

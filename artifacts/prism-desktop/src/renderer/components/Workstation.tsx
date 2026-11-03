@@ -12,17 +12,40 @@ import type {
   MidiNote,
   ProjectAsset,
   SongSession,
+  SongKey,
   TrackType,
   Track,
 } from "@shared/types";
 import { createDefaultDrumKit, createDefaultSamplerState } from "@shared/instrument-tracks";
 import { AudioEngine, type AudioDevice, type AudioEngineSnapshot } from "../audio/AudioEngine";
 import { secondsPerBeat } from "../audio/time";
-import { getPianoNoteDragUpdate, pasteMidiNotes, splitMidiNoteAt, type PianoNoteDragState } from "./piano-roll";
+import {
+  constrainCreatedPitch,
+  constrainMovedPitch,
+  pasteMidiNotes,
+  PIANO_ROW_HEIGHT,
+  splitMidiNoteAt,
+} from "./piano-roll";
+import { allowedPitchClasses } from "@shared/scales";
+import { computeWaveformPeaks, getWaveformWindow } from "@shared/waveform";
+import {
+  ARRANGEMENT_RULER_HEIGHT,
+  DEFAULT_TRACK_HEADER_WIDTH,
+  DEFAULT_TRACK_HEIGHT,
+  MAX_TRACK_HEADER_WIDTH,
+  MAX_TRACK_HEIGHT,
+  MIN_TRACK_HEADER_WIDTH,
+  MIN_TRACK_HEIGHT,
+  clampLayoutSize,
+  clientYToArrangementPitch,
+  clientXToTimelineSeconds,
+} from "./arrangement-layout";
 import { EffectsPanel } from "./EffectsPanel";
 import { RoutingPanel } from "./RoutingPanel";
 import { SamplerPanel } from "./SamplerPanel";
 import { DrumPanel } from "./DrumPanel";
+import { PianoRollSurface } from "./PianoRollSurface";
+import { SongKeyControls, SONG_KEY_ROOT_NAMES as rootNames } from "./SongKeyControls";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { getAllowedBusTargets, maxAudioBuses } from "@shared/audio-routing";
 import prismLogo from "../assets/prism-logo.png";
@@ -102,6 +125,21 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const [dismissedSnapshotError, setDismissedSnapshotError] = useState("");
   const [zoom, setZoom] = useState(1);
   const [snap, setSnap] = useState(true);
+  const [headerWidth, setHeaderWidth] = useState(() => clampLayoutSize(
+    Number(localStorage.getItem("prism.arrangementHeaderWidth")) || DEFAULT_TRACK_HEADER_WIDTH,
+    MIN_TRACK_HEADER_WIDTH,
+    MAX_TRACK_HEADER_WIDTH,
+  ));
+  const [trackHeights, setTrackHeights] = useState<Record<string, number>>(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("prism.arrangementTrackHeights") ?? "{}") as Record<string, number>;
+      return Object.fromEntries(Object.entries(stored).map(([id, height]) => [
+        id, clampLayoutSize(Number(height), MIN_TRACK_HEIGHT, MAX_TRACK_HEIGHT),
+      ]));
+    } catch { return {}; }
+  });
+  const smartView = session.midiView?.smartView ?? false;
+  const scaleSnap = session.midiView?.scaleSnap ?? false;
   const [inputDevices, setInputDevices] = useState<AudioDevice[]>([]);
   const [outputDevices, setOutputDevices] = useState<AudioDevice[]>([]);
   const [audioAssets, setAudioAssets] = useState<ProjectAsset[]>([]);
@@ -129,6 +167,11 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const pianoGridRef = useRef<HTMLDivElement>(null);
+  const pianoKeyboardRef = useRef<HTMLDivElement>(null);
+  const pianoRulerRef = useRef<HTMLDivElement>(null);
+  const waveformCache = useRef(new Map<string, { duration: number; peaks: number[] }>());
+  const headerResizeRef = useRef<{ x: number; initialWidth: number; width: number } | null>(null);
+  const trackResizeRef = useRef<{ id: string; y: number; initialHeight: number; height: number } | null>(null);
   const history = useRef(createSessionHistory(initialSession));
   const commandExecutor = useRef<(commandId: ShortcutCommandId) => void>(() => {});
   const shortcutStateRef = useRef({
@@ -175,9 +218,11 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
 
   useEffect(() => {
     if (panel !== "piano" || !pianoGridRef.current) return;
-    const pitch = selectedInstrument?.notes.find((note) => note.id === selectedNote)?.pitch ?? 60;
-    pianoGridRef.current.scrollTop = Math.max(0, (127 - pitch) * 15 - 45);
-  }, [panel, selectedTrack, selectedNote]);
+    const clipNote = selectedPatternTrack?.notes.find((note) => note.midiClipId === selectedMidiClip);
+    const pitch = clipNote?.pitch ?? 60;
+    pianoGridRef.current.scrollTop = Math.max(0, (127 - pitch) * PIANO_ROW_HEIGHT - 45);
+    if (pianoKeyboardRef.current) pianoKeyboardRef.current.scrollTop = pianoGridRef.current.scrollTop;
+  }, [panel, selectedTrack, selectedMidiClip]);
 
   useEffect(() => {
     history.current = createSessionHistory(initialSession);
@@ -266,56 +311,57 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     if (!snapshot.error) setDismissedSnapshotError("");
   }, [snapshot.error]);
 
+  const audioAssetSignature = session.tracks.flatMap((track) => track.clips.map((clip) => clip.assetId)).join("|");
   useEffect(() => {
     if (!engine) return;
     let cancelled = false;
-    const clips = session.tracks.flatMap((track) => track.clips);
-    void Promise.all(clips.map(async (clip) => {
-      if (clip.sourceDurationSeconds > 0 && clip.waveform.length > 0) return null;
+    const assetIds = [...new Set(session.tracks.flatMap((track) => track.clips.map((clip) => clip.assetId)))];
+    const missing = assetIds.filter((assetId) => !waveformCache.current.has(assetId));
+    void Promise.all(missing.map(async (assetId) => {
       try {
-        const buffer = await engine.loadAudio(clip.assetId);
-        return {
-          clipId: clip.id,
-          durationSeconds: buffer.duration,
-          waveform: clip.waveform.length > 0 ? clip.waveform : waveformPeaks(buffer),
-        };
+        const buffer = await engine.loadAudio(assetId);
+        const channels = Array.from({ length: buffer.numberOfChannels }, (_, index) => buffer.getChannelData(index));
+        const result = { duration: buffer.duration, peaks: computeWaveformPeaks(channels) };
+        waveformCache.current.set(assetId, result);
+        return { assetId, result };
       } catch (cause) {
-        if (!cancelled) {
-          setEngineError(cause instanceof Error ? cause.message : `Could not load ${clip.name}.`);
-        }
+        if (!cancelled) setEngineError(cause instanceof Error ? cause.message : `Audio source ${assetId} could not be decoded.`);
         return null;
       }
     })).then((loaded) => {
       if (cancelled) return;
       const metadata = new Map(loaded.filter((item): item is NonNullable<typeof item> => item !== null)
-        .map((item) => [item.clipId, item]));
-      if (metadata.size === 0) return;
+        .map((item) => [item.assetId, item.result]));
+      for (const assetId of assetIds) {
+        const cached = waveformCache.current.get(assetId);
+        if (cached) metadata.set(assetId, cached);
+      }
+      if (!metadata.size) return;
       setSession((current) => ({
         ...current,
         tracks: current.tracks.map((track) => ({
           ...track,
           clips: track.clips.map((clip) => {
-            const item = metadata.get(clip.id);
+            const item = metadata.get(clip.assetId);
             if (!item) return clip;
-            const sourceDurationSeconds = Math.min(
-              clip.sourceDurationSeconds || item.durationSeconds,
-              item.durationSeconds,
-            );
-            const availableDuration = Math.max(0, sourceDurationSeconds - clip.sourceStartSeconds);
-            return {
-              ...clip,
-              durationSeconds: clip.durationSeconds
-                ? Math.min(clip.durationSeconds, availableDuration)
-                : availableDuration,
-              sourceDurationSeconds,
-              waveform: item.waveform,
-            };
+            const sourceStartSeconds = clamp(clip.sourceStartSeconds, 0, item.duration);
+            const sourceDurationSeconds = item.duration;
+            const availableDuration = Math.max(0, sourceDurationSeconds - sourceStartSeconds);
+            const durationSeconds = clip.durationSeconds > 0
+              ? Math.min(clip.durationSeconds, availableDuration)
+              : availableDuration;
+            if (clip.sourceDurationSeconds === sourceDurationSeconds &&
+              clip.waveform.length === item.peaks.length &&
+              clip.waveform.every((peak, index) => peak === item.peaks[index]) &&
+              clip.durationSeconds === durationSeconds &&
+              clip.sourceStartSeconds === sourceStartSeconds) return clip;
+            return { ...clip, durationSeconds, sourceDurationSeconds, sourceStartSeconds, waveform: item.peaks };
           }),
         })),
       }));
     });
     return () => { cancelled = true; };
-  }, [engine, session.id]);
+  }, [engine, session.id, audioAssetSignature]);
 
   useEffect(() => {
     if (!engine) return;
@@ -388,6 +434,19 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const updateTrack = (trackId: string, update: Partial<Track>) => setSession((current) => ({
     ...current, tracks: current.tracks.map((track) => track.id === trackId ? { ...track, ...update } : track),
   }));
+  const setSongKey = (songKey: SongKey | null) => setSession((current) => ({ ...current, songKey }));
+  const toggleSmartView = () => {
+    setSession((current) => ({
+      ...current,
+      midiView: { smartView: !current.midiView?.smartView, scaleSnap: current.midiView?.scaleSnap ?? false },
+    }));
+  };
+  const toggleScaleSnap = () => {
+    setSession((current) => ({
+      ...current,
+      midiView: { smartView: current.midiView?.smartView ?? false, scaleSnap: !current.midiView?.scaleSnap },
+    }));
+  };
   const updateClip = (trackId: string, clipId: string, update: Partial<AudioClip>) => setSession((current) => ({
     ...current, tracks: current.tracks.map((track) => track.id === trackId ? {
       ...track, clips: track.clips.map((clip) => clip.id === clipId ? { ...clip, ...update } : clip),
@@ -432,7 +491,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     const startBeat = snap ? Math.round(beat * 4) / 4 : beat;
     const note: MidiNote = {
       id: crypto.randomUUID(),
-      pitch: Math.round(clamp(pitch, 0, 127)),
+      pitch: constrainCreatedPitch(pitch, session.songKey, scaleSnap),
       startBeat,
       durationBeats,
       velocity: 92,
@@ -575,9 +634,24 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       return;
     }
     const beat = snapshot.position / beatSeconds;
-    const startBeat = snap ? Math.max(0, Math.round(beat / 4) * 4) : Math.max(0, beat);
-    const clip: MidiClip = { id: crypto.randomUUID(), name: "MIDI Clip", startBeat, durationBeats: 4 };
-    updateTrack(trackId, { midiClips: [...(track.midiClips ?? []), clip] });
+    const barLength = beatsPerBar(session.timeSignature);
+    const startBeat = snap ? Math.max(0, Math.round(beat / barLength) * barLength) : Math.max(0, beat);
+    const clip: MidiClip = { id: crypto.randomUUID(), name: "MIDI Clip", startBeat, durationBeats: barLength };
+    setSession((current) => {
+      const exists = current.tracks.some((item) => item.id === trackId);
+      if (!exists && newlyCreatedTrack) {
+        return {
+          ...current,
+          tracks: [...current.tracks, { ...newlyCreatedTrack, midiClips: [...(newlyCreatedTrack.midiClips ?? []), clip] }],
+        };
+      }
+      return {
+        ...current,
+        tracks: current.tracks.map((item) => item.id === trackId
+          ? { ...item, midiClips: [...(item.midiClips ?? []), clip] }
+          : item),
+      };
+    });
     setSelectedTrack(trackId);
     setSelectedMidiClip(clip.id);
     setSelectedClip(null);
@@ -652,7 +726,9 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     const imported = await window.prism.importAudio(session.id, target.id);
     if (!imported) return;
     const buffer = await engine.loadAudio(imported.clip.assetId);
-    const waveform = waveformPeaks(buffer);
+    const channels = Array.from({ length: buffer.numberOfChannels }, (_, index) => buffer.getChannelData(index));
+    const waveform = computeWaveformPeaks(channels);
+    waveformCache.current.set(imported.clip.assetId, { duration: buffer.duration, peaks: waveform });
     const clip = {
       ...imported.clip,
       durationSeconds: buffer.duration,
@@ -817,7 +893,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     if (!track || !note) return;
     updateNote(track.id, note.id, {
       startBeat: Math.max(0, snap ? Math.round((note.startBeat + beatDelta) * 4) / 4 : note.startBeat + beatDelta),
-      pitch: clamp(note.pitch + pitchDelta, 0, 127),
+      pitch: constrainMovedPitch(note.pitch, pitchDelta, session.songKey, scaleSnap),
     });
   };
   const splitMidiNote = (noteId = selectedNote) => {
@@ -942,7 +1018,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     } finally { setBusy(""); }
   });
 
-  const createMidiNoteAt = (trackId: string, beat: number, pitch: number) => {
+  const createMidiNoteAt = (trackId: string, beat: number, pitch: number, chromaticOverride = false) => {
     const track = session.tracks.find((item) => item.id === trackId);
     if (!track || !["instrument", "sampler", "drum"].includes(track.type)) {
       setNotice("Choose a supported MIDI track before drawing a note.");
@@ -952,8 +1028,9 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     let midiClipId = selectedMidiClip;
     let midiClips = track.midiClips ?? [];
     if (!midiClipId || !midiClips.some((clip) => clip.id === midiClipId)) {
-      const startBeat = Math.floor(beat / 4) * 4;
-      const clip: MidiClip = { id: crypto.randomUUID(), name: "MIDI Clip", startBeat, durationBeats: 4 };
+      const barLength = beatsPerBar(session.timeSignature);
+      const startBeat = Math.floor(beat / barLength) * barLength;
+      const clip: MidiClip = { id: crypto.randomUUID(), name: "MIDI Clip", startBeat, durationBeats: barLength };
       midiClipId = clip.id;
       midiClips = [...midiClips, clip];
       setSelectedMidiClip(clip.id);
@@ -961,7 +1038,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     const activeClip = midiClips.find((clip) => clip.id === midiClipId)!;
     const note: MidiNote = {
       id: crypto.randomUUID(),
-      pitch: Math.round(clamp(pitch, 0, 127)),
+      pitch: constrainCreatedPitch(pitch, session.songKey, scaleSnap, chromaticOverride),
       startBeat: Math.max(activeClip.startBeat, Math.min(startBeat, activeClip.startBeat + activeClip.durationBeats - 0.25)),
       durationBeats: Math.max(.125, Math.min(1, activeClip.startBeat + activeClip.durationBeats - Math.max(activeClip.startBeat, Math.min(startBeat, activeClip.startBeat + activeClip.durationBeats - 0.25)))),
       velocity: 90,
@@ -1232,13 +1309,21 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
                   ? (selectedNoteData.startBeat + selectedNoteData.durationBeats) * beatSeconds
                   : duration;
         const targetDuration = Math.max(1, endSeconds - startSeconds);
-        const available = Math.max(12, (timelineRef.current?.clientWidth ?? 900) - 260);
+        const viewWidth = activeEditor === "piano" ? pianoGridRef.current?.clientWidth : timelineRef.current?.clientWidth;
+        const available = Math.max(12, (viewWidth ?? 900) - (activeEditor === "piano" ? 0 : headerWidth) - 20);
         const nextZoom = clamp(available / Math.max(1, targetDuration * 54), 0.5, 2.4);
         setZoom(nextZoom);
-        window.requestAnimationFrame(() => timelineRef.current?.scrollTo({
-          left: Math.max(0, 240 + startSeconds * 54 * nextZoom - 40),
-          behavior: "smooth",
-        }));
+        window.requestAnimationFrame(() => {
+          if (activeEditor === "piano") {
+            const nextBeatWidth = beatSeconds * 54 * nextZoom;
+            pianoGridRef.current?.scrollTo({ left: Math.max(0, startSeconds / beatSeconds * nextBeatWidth - 30), behavior: "smooth" });
+          } else {
+            timelineRef.current?.scrollTo({
+              left: Math.max(0, headerWidth + startSeconds * 54 * nextZoom - 40),
+              behavior: "smooth",
+            });
+          }
+        });
         break;
       }
       case "panel.mixer": setPanel("mixer"); setActiveEditor("mixer"); break;
@@ -1331,6 +1416,60 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
 
   const labelTime = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}.${String(Math.floor((seconds % 1) * 10))}`;
   const timelineWidth = Math.max(1000, duration * pixelsPerSecond + 120);
+  const pianoBeatWidth = beatSeconds * pixelsPerSecond;
+  const pianoContentWidth = Math.max(1000, (duration / beatSeconds + beatsPerBar(session.timeSignature) * 2) * pianoBeatWidth);
+  const songKey = session.songKey ?? null;
+  const arrangementLayout = {
+    headerWidth,
+    rulerHeight: ARRANGEMENT_RULER_HEIGHT,
+    rowHeights: trackHeights,
+    originX: headerWidth,
+    pixelsPerSecond,
+  };
+  const resizeTrackHeader = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.type === "pointerdown") {
+      event.preventDefault();
+      headerResizeRef.current = { x: event.clientX, initialWidth: headerWidth, width: headerWidth };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } else if (event.type === "pointermove" && headerResizeRef.current) {
+      const width = clampLayoutSize(
+        headerResizeRef.current.initialWidth + event.clientX - headerResizeRef.current.x,
+        MIN_TRACK_HEADER_WIDTH,
+        MAX_TRACK_HEADER_WIDTH,
+      );
+      headerResizeRef.current.width = width;
+      setHeaderWidth(width);
+    } else if (event.type === "pointerup" || event.type === "pointercancel") {
+      const finalWidth = headerResizeRef.current?.width ?? headerWidth;
+      headerResizeRef.current = null;
+      localStorage.setItem("prism.arrangementHeaderWidth", String(finalWidth));
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+  const resizeTrackRow = (trackId: string, event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.type === "pointerdown") {
+      event.preventDefault();
+      const height = trackHeights[trackId] ?? DEFAULT_TRACK_HEIGHT;
+      trackResizeRef.current = { id: trackId, y: event.clientY, initialHeight: height, height };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } else if (event.type === "pointermove" && trackResizeRef.current?.id === trackId) {
+      const next = clampLayoutSize(
+        trackResizeRef.current.initialHeight + event.clientY - trackResizeRef.current.y,
+        MIN_TRACK_HEIGHT,
+        MAX_TRACK_HEIGHT,
+      );
+      trackResizeRef.current.height = next;
+      setTrackHeights((current) => ({ ...current, [trackId]: next }));
+    } else if (event.type === "pointerup" || event.type === "pointercancel") {
+      const resized = trackResizeRef.current;
+      if (resized) localStorage.setItem("prism.arrangementTrackHeights", JSON.stringify({
+        ...trackHeights,
+        [resized.id]: resized.height,
+      }));
+      trackResizeRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
   const toggleLoop = () => setSession((current) => ({
     ...current,
     loopRange: current.loopRange?.enabled
@@ -1479,6 +1618,13 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         <span className="save-dot" />{saveStatus === "saving" ? "Saving" : saveStatus === "error" ? "Save error" : "Saved locally"}
       </div>
       <button className="icon-button" data-testid="button-save-session" title="Save project" onClick={() => void saveNow()}><Save size={16} /></button>
+      <details className="song-settings">
+        <summary data-testid="button-song-settings">Song settings</summary>
+        <div className="song-settings-popover">
+          <SongKeyControls value={songKey} onChange={setSongKey} prefix="settings-song-key" />
+          <p>Song Key guides MIDI editing. Changing it never changes existing notes.</p>
+        </div>
+      </details>
     </header>
 
     <section className="transport-bar">
@@ -1528,15 +1674,18 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
           <button className="icon-button compact" data-testid="button-undo" aria-label="Undo edit" title={`Undo (${formatShortcut(shortcutBindings["edit.undo"], platform)})`} disabled={!historyAvailability.canUndo || recording} onClick={undo}><Undo2 size={14} /></button>
           <button className="icon-button compact" data-testid="button-redo" aria-label="Redo edit" title={`Redo (${formatShortcut(shortcutBindings["edit.redo"], platform)})`} disabled={!historyAvailability.canRedo || recording} onClick={redo}><Redo2 size={14} /></button>
           <button className="button button-subtle" data-testid="button-import-audio" onClick={() => void importAudio()}><Plus size={14} /> Import audio</button>
-           <button className="button button-subtle" data-testid="button-add-midi-clip" onClick={() => createMidiClip()}><Music2 size={13} /> MIDI Clip</button>
           <label className="snap-toggle"><input data-testid="input-snap" type="checkbox" checked={snap} onChange={(event) => setSnap(event.target.checked)} /> Snap</label>
           <button className="icon-button compact" type="button" data-testid="button-open-shortcuts" aria-label="Keyboard shortcuts" title="Keyboard shortcuts" onClick={() => setShortcutDialogOpen(true)}><Keyboard size={14} /></button>
         </div>
         <div className="zoom-control"><span>Zoom</span><input data-testid="input-timeline-zoom" aria-label="Timeline zoom" type="range" min=".5" max="2.4" step=".05" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></div>
       </div>
       <div className="timeline-scroll" ref={timelineRef}>
-        <div className="timeline-content" style={{ width: `${timelineWidth}px` }}>
-          <div className="timeline-ruler-row">
+        <div className="timeline-content" style={{
+          width: `${headerWidth + timelineWidth}px`,
+          "--track-header-width": `${arrangementLayout.headerWidth}px`,
+          "--arrangement-origin-x": `${arrangementLayout.originX}px`,
+        } as CSSProperties}>
+          <div className="timeline-ruler-row" style={{ gridTemplateColumns: `${arrangementLayout.headerWidth}px ${timelineWidth}px`, height: `${arrangementLayout.rulerHeight}px` }}>
             <div className="track-column-heading"><span>TRACKS</span><details className="track-add-menu">
               <summary data-testid="button-add-track" aria-label="Add track">+ <span>Add Track</span></summary>
               <div className="track-add-options" role="menu" aria-label="Add track type">
@@ -1546,17 +1695,20 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
                 <button role="menuitem" data-testid="add-track-sampler" onClick={() => addTrack("sampler")}>Sampler Track</button>
                 <button role="menuitem" data-testid="add-track-bus" disabled={session.buses.length >= maxAudioBuses} title={session.buses.length >= maxAudioBuses ? `Maximum ${maxAudioBuses} buses` : "Create a routable audio bus"} onClick={addBus}>Bus Track</button>
               </div>
-            </details></div>
-            <div className="timeline-ruler" style={{ width: `${timelineWidth - 240}px` }} onClick={(event) => {
+            </details><div className="header-resize-grip" data-testid="track-header-resize" role="separator" aria-label="Resize track header" aria-orientation="vertical" aria-valuenow={headerWidth} onPointerDown={resizeTrackHeader} onPointerMove={resizeTrackHeader} onPointerUp={resizeTrackHeader} onPointerCancel={resizeTrackHeader} /></div>
+            <div className="timeline-ruler" data-testid="timeline-ruler" style={{ width: `${timelineWidth}px` }} onClick={(event) => {
               const bounds = event.currentTarget.getBoundingClientRect();
-              seek(Math.max(0, (event.clientX - bounds.left) / pixelsPerSecond));
+              seek(clientXToTimelineSeconds(event.clientX, bounds.left, arrangementLayout.pixelsPerSecond));
             }}>
           {Array.from({ length: Math.ceil(duration / barSeconds) + 2 }, (_, index) => <div className="ruler-mark" key={index} style={{ left: `${index * barSeconds * pixelsPerSecond}px` }}><span>{String(index + 1).padStart(2, "0")}</span></div>)}
               {session.loopRange?.enabled && <div className="loop-region" style={{ left: `${session.loopRange.startSeconds * pixelsPerSecond}px`, width: `${Math.max(12, (session.loopRange.endSeconds - session.loopRange.startSeconds) * pixelsPerSecond)}px` }} />}
             </div>
           </div>
-          {session.tracks.map((track, index) => <div className={`timeline-track-row ${selectedTrack === track.id ? "track-selected" : ""}`} key={track.id}>
-            <div className="track-controls">
+          {session.tracks.map((track, index) => {
+            const trackHeight = arrangementLayout.rowHeights[track.id] ?? DEFAULT_TRACK_HEIGHT;
+            return <div className={`timeline-track-row ${selectedTrack === track.id ? "track-selected" : ""}`} key={track.id}
+              style={{ gridTemplateColumns: `${arrangementLayout.headerWidth}px ${timelineWidth}px`, height: `${trackHeight}px`, minHeight: `${trackHeight}px` }}>
+            <div className="track-controls" data-track-id={track.id}>
               <span className="track-color" style={{ background: track.color || colors[index % colors.length] }} />
               <button className="track-name" data-testid={`button-rename-track-${track.id}`} title="Rename track" onClick={() => { const name = window.prompt("Track name", track.name); if (name?.trim()) updateTrack(track.id, { name: name.trim() }); selectArrangementTrack(track); }}>{track.name}</button>
               <small className="track-kind">{track.type === "instrument" ? "INSTRUMENT" : track.type === "sampler" ? "SAMPLER" : track.type === "drum" ? "DRUM KIT" : track.type === "unsupported" ? "UNSUPPORTED" : "AUDIO"}</small>
@@ -1569,18 +1721,41 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
               <div className="track-meter-wrap"><MeterBar meter={snapshot.meters[track.id]} id={`track-${track.id}`} /><span className="track-db">{snapshot.meters[track.id]?.peak ? `${(20 * Math.log10(snapshot.meters[track.id].peak)).toFixed(1)} dB` : "−∞ dB"}</span></div>
               <label className="track-level"><span>VOL</span><input data-testid={`input-track-volume-${track.id}`} aria-label={`${track.name} volume`} type="range" min="0" max="1.25" step=".01" value={track.volume} onChange={(event) => updateTrack(track.id, { volume: Number(event.target.value) })} /><small>{Math.round(track.volume * 100)}</small></label>
               <label className="track-pan"><span>PAN</span><input data-testid={`input-track-pan-${track.id}`} aria-label={`${track.name} pan`} type="range" min="-1" max="1" step=".01" value={track.pan} onChange={(event) => updateTrack(track.id, { pan: Number(event.target.value) })} /></label>
+              <div className="track-height-grip" data-testid={`track-height-resize-${track.id}`} data-track-id={track.id} role="separator" aria-label={`Resize ${track.name} row`} aria-orientation="horizontal" aria-valuenow={trackHeight} onPointerDown={(event) => resizeTrackRow(track.id, event)} onPointerMove={(event) => resizeTrackRow(track.id, event)} onPointerUp={(event) => resizeTrackRow(track.id, event)} onPointerCancel={(event) => resizeTrackRow(track.id, event)} />
             </div>
-            <div className={`timeline-lane tool-${editTool}`} onClick={(event) => {
+            <div className={`timeline-lane tool-${editTool}`} data-testid={`timeline-lane-${track.id}`} data-track-id={track.id} onClick={(event) => {
               if ((event.target as HTMLElement).closest(".audio-clip, .midi-clip, .midi-note")) return;
               selectArrangementTrack(track);
               const bounds = event.currentTarget.getBoundingClientRect();
-              const seconds = Math.max(0, (event.clientX - bounds.left) / pixelsPerSecond);
+              const seconds = clientXToTimelineSeconds(event.clientX, bounds.left, arrangementLayout.pixelsPerSecond);
               if (editTool === "draw") {
-                const pitch = 127 - Math.floor((event.clientY - bounds.top) / 0.62);
-                createMidiNoteAt(track.id, seconds / beatSeconds, pitch);
+                const pitch = clientYToArrangementPitch(event.clientY, bounds.top, bounds.height);
+                createMidiNoteAt(track.id, seconds / beatSeconds, pitch, event.altKey);
                 return;
               }
               if (editTool !== "erase") seek(seconds);
+            }} onDoubleClick={(event) => {
+              if ((event.target as HTMLElement).closest(".audio-clip, .midi-clip")) return;
+              if (editTool !== "select") return;
+              if (!["instrument", "sampler", "drum"].includes(track.type)) return;
+              const bounds = event.currentTarget.getBoundingClientRect();
+              const seconds = clientXToTimelineSeconds(event.clientX, bounds.left, arrangementLayout.pixelsPerSecond);
+              const rawBeat = seconds / beatSeconds;
+              const startBeat = snap ? Math.max(0, Math.round(rawBeat * 4) / 4) : Math.max(0, rawBeat);
+              const clip: MidiClip = {
+                id: crypto.randomUUID(),
+                name: "MIDI Clip",
+                startBeat,
+                durationBeats: beatsPerBar(session.timeSignature),
+              };
+              updateTrack(track.id, { midiClips: [...(track.midiClips ?? []), clip] });
+              setSelectedTrack(track.id);
+              setSelectedMidiClip(clip.id);
+              setSelectedClip(null);
+              setSelectedNote(null);
+              setPanel("piano");
+              setActiveEditor("piano");
+              setNotice("");
             }}>
               {Array.from({ length: Math.ceil(duration / barSeconds) + 2 }, (_, index) => <div key={index} className="lane-gridline" style={{ left: `${index * barSeconds * pixelsPerSecond}px` }} />)}
               {track.clips.map((clip) => <ClipBlock key={clip.id} clip={clip} selected={selectedClip === clip.id || allItemsSelected} pps={pixelsPerSecond} snapStep={beatSeconds / 4} snap={snap} tool={editTool} onSelect={() => { setAllItemsSelected(false); setSelectedTrack(track.id); setSelectedClip(clip.id); setSelectedMidiClip(null); setSelectedNote(null); setPanel("clip"); setActiveEditor("arrangement"); }} onUpdate={(update) => updateClip(track.id, clip.id, update)} onDelete={() => removeClip(clip.id)} onSplit={() => splitClipById(clip.id)} onContextMenu={(x, y) => { setSelectedTrack(track.id); setSelectedClip(clip.id); setSelectedNote(null); setPanel("clip"); setActiveEditor("arrangement"); setContextMenu({ kind: "clip", clipId: clip.id, trackId: track.id, x, y }); }} />)}
@@ -1590,7 +1765,8 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
               }} />)}
               <div className="playhead" style={{ left: `${snapshot.position * pixelsPerSecond}px` }} />
             </div>
-          </div>)}
+          </div>;
+          })}
           {session.tracks.length === 0 && <div className="timeline-empty"><Music2 size={22} /><strong>Start with a track</strong><span>Import audio or create an instrument lane.</span></div>}
         </div>
       </div>
@@ -1671,6 +1847,13 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       </div> : <div className="panel-empty">Select a drum track to assign samples and build a pad pattern.</div>)}
       {panel === "piano" && <div className="piano-panel">
         <div className="piano-tools">
+          <SongKeyControls value={songKey} onChange={setSongKey} trackId={selectedPatternTrack?.id} />
+          <button className={`button button-subtle midi-view-toggle ${smartView ? "active" : ""}`} type="button" data-testid="button-smart-view" data-track-id={selectedPatternTrack?.id ?? ""} aria-pressed={smartView} onClick={toggleSmartView}>Smart View</button>
+          <button className={`button button-subtle midi-view-toggle ${scaleSnap ? "active" : ""}`} type="button" data-testid="button-scale-snap" data-track-id={selectedPatternTrack?.id ?? ""} aria-pressed={scaleSnap} disabled={!songKey} title={!songKey ? "Select a Song Key before enabling Scale Snap." : "Constrain new and moved notes to the Song Key; hold Alt for chromatic movement."} onClick={toggleScaleSnap}>Scale Snap</button>
+          {smartView && songKey && <span className="scale-guide-legend" data-testid="text-scale-guide">
+            {rootNames[songKey.root]} {songKey.scale === "major" ? "Major" : "Natural minor"} · {allowedPitchClasses(songKey).map((pitch) => rootNames[pitch]).join(" ")}
+          </span>}
+          {smartView && !songKey && <span className="song-key-prompt" data-testid="text-song-key-prompt">Choose a Song Key to show scale guides.</span>}
           {selectedInstrument && <>
             <label>Instrument<select data-testid="select-oscillator" value={selectedInstrument.instrument?.waveform ?? "triangle"} onChange={(event) => selectedInstrument.instrument && updateTrack(selectedInstrument.id, { instrument: { ...selectedInstrument.instrument, waveform: event.target.value as OscillatorType } })}>{["sine", "triangle", "square", "sawtooth"].map((wave) => <option key={wave}>{wave}</option>)}</select></label>
             <label>Attack<input data-testid="input-instrument-attack" type="number" min="0.001" max="4" step="0.001" value={selectedInstrument.instrument?.attack ?? 0.01} onChange={(event) => updateInstrumentParameter("attack", Number(event.target.value))} /></label>
@@ -1693,26 +1876,51 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
             addMidiNote(selectedPatternTrack.id, pitch);
           }}><Plus size={13} /> Add note</button>}
           {selectedPatternNote && <>
-            <label>Pitch<input data-testid="input-note-pitch" type="number" min="0" max="127" value={selectedPatternNote.pitch} onChange={(event) => updateNote(selectedPatternTrack!.id, selectedPatternNote.id, { pitch: Math.round(clamp(Number(event.target.value), 0, 127)) })} /></label>
+            <label>Pitch<input data-testid="input-note-pitch" type="number" min="0" max="127" value={selectedPatternNote.pitch} onChange={(event) => updateNote(selectedPatternTrack!.id, selectedPatternNote.id, {
+              pitch: constrainCreatedPitch(Math.round(clamp(Number(event.target.value), 0, 127)), songKey, scaleSnap),
+            })} /></label>
             <label>Velocity<input data-testid="input-note-velocity" type="range" min="1" max="127" value={selectedPatternNote.velocity} onChange={(event) => updateNote(selectedPatternTrack!.id, selectedPatternNote.id, { velocity: Number(event.target.value) })} /></label>
             <button className="icon-button compact danger-hover" data-testid="button-delete-midi-note" title="Delete selected note" onClick={() => { if (selectedNote) removeNote(selectedNote); }}><Trash2 size={13} /></button>
           </>}
         </div>
-        <div className="piano-grid" ref={pianoGridRef} data-testid="piano-roll" onDoubleClick={(event) => {
-          if ((event.target as HTMLElement).closest(".piano-key, .piano-note")) return;
-          if (editTool === "erase" || editTool === "split") return;
-          if (!selectedPatternTrack || selectedPatternTrack.type === "unsupported") {
-            setNotice("Select a supported sampler, drum, or instrument track to create MIDI notes.");
-            return;
-          }
-          const bounds = event.currentTarget.getBoundingClientRect();
-          const beat = Math.max(0, (event.clientX - bounds.left + event.currentTarget.scrollLeft) / (beatSeconds * pixelsPerSecond));
-          const pitch = clamp(127 - Math.floor((event.clientY - bounds.top + event.currentTarget.scrollTop) / 15), 0, 127);
-          createMidiNoteAt(selectedPatternTrack.id, beat, pitch);
-        }}>
-          {Array.from({ length: 128 }, (_, index) => <div key={index} className={`piano-row ${isBlackKey(127 - index) ? "black-key-row" : ""}`}><span className="piano-key">{pitchName(127 - index)}</span></div>)}
-          {pianoNotes.map((note) => <PianoNote key={note.id} note={note} selected={note.id === selectedNote || allItemsSelected} beatWidth={beatSeconds * pixelsPerSecond} snap={snap} tool={editTool} onSelect={() => { setAllItemsSelected(false); setSelectedNote(note.id); setSelectedTrack(selectedPatternTrack!.id); }} onChange={(update) => updateNote(selectedPatternTrack!.id, note.id, update)} onDelete={() => removeNote(note.id)} onSplit={() => splitMidiNote(note.id)} onContextMenu={(x, y) => { setSelectedNote(note.id); setSelectedTrack(selectedPatternTrack!.id); setContextMenu({ kind: "note", noteId: note.id, trackId: selectedPatternTrack!.id, x, y }); }} />)}
-        </div>
+        <PianoRollSurface
+          gridRef={pianoGridRef}
+          keyboardRef={pianoKeyboardRef}
+          rulerRef={pianoRulerRef}
+          trackId={selectedPatternTrack?.id ?? ""}
+          notes={pianoNotes}
+          selectedNoteId={selectedNote}
+          allSelected={allItemsSelected}
+          beatWidth={pianoBeatWidth}
+          contentWidth={pianoContentWidth}
+          beatsPerBar={beatsPerBar(session.timeSignature)}
+          snap={snap}
+          tool={editTool}
+          scaleKey={songKey}
+          smartView={smartView}
+          scaleSnap={scaleSnap}
+          canCreate={Boolean(selectedPatternTrack && selectedPatternTrack.type !== "unsupported")}
+          onCreate={(beat, pitch, chromaticOverride) => {
+            if (selectedPatternTrack) createMidiNoteAt(selectedPatternTrack.id, beat, pitch, chromaticOverride);
+          }}
+          onUnavailableCreate={() => setNotice("Select a supported sampler, drum, or instrument track to create MIDI notes.")}
+          onSelectNote={(noteId) => {
+            setAllItemsSelected(false);
+            setSelectedNote(noteId);
+            if (selectedPatternTrack) setSelectedTrack(selectedPatternTrack.id);
+          }}
+          onChangeNote={(noteId, update) => {
+            if (selectedPatternTrack) updateNote(selectedPatternTrack.id, noteId, update);
+          }}
+          onDeleteNote={removeNote}
+          onSplitNote={splitMidiNote}
+          onContextMenu={(noteId, x, y) => {
+            if (!selectedPatternTrack) return;
+            setSelectedNote(noteId);
+            setSelectedTrack(selectedPatternTrack.id);
+            setContextMenu({ kind: "note", noteId, trackId: selectedPatternTrack.id, x, y });
+          }}
+        />
          {!selectedPatternTrack && <div className="piano-hint">Choose an instrument, sampler, or drum track to edit MIDI notes. Double-click the grid to place a note.</div>}
         {selectedPatternTrack?.type === "unsupported" && <div className="piano-hint">This track’s MIDI is preserved but cannot play until you recover it as a supported instrument.</div>}
       </div>}
@@ -1829,14 +2037,26 @@ function ClipBlock({ clip, selected, pps, snap, snapStep, tool, onSelect, onUpda
   const start = preview?.start ?? clip.startSeconds;
   const width = preview?.duration ?? clip.durationSeconds;
   const sourceStart = preview?.source ?? clip.sourceStartSeconds;
-  const sourceDuration = Math.max(clip.sourceDurationSeconds, sourceStart + width, .001);
-  const waveformStart = Math.floor(sourceStart / sourceDuration * clip.waveform.length);
-  const waveformEnd = Math.ceil((sourceStart + width) / sourceDuration * clip.waveform.length);
-  const visibleWaveform = clip.waveform.slice(waveformStart, Math.max(waveformStart + 1, waveformEnd));
-  return <div className={`audio-clip ${selected ? "selected" : ""}`} data-testid={`clip-${clip.id}`} style={{ left: `${start * pps}px`, width: `${Math.max(74, width * pps)}px` }} onClick={(event) => { event.stopPropagation(); if (tool === "erase") onDelete(); else if (tool === "split") onSplit(); else onSelect(); }} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onContextMenu(event.clientX, event.clientY); }} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish}>
+  const sourceDuration = Math.max(clip.sourceDurationSeconds, .001);
+  const visibleWaveform = getWaveformWindow(
+    clip.waveform,
+    sourceDuration,
+    sourceStart,
+    width,
+    112,
+  );
+  const waveformBars = visibleWaveform.map((peak, index) => {
+    const amplitude = Math.max(0, Math.min(1, Number.isFinite(peak) ? peak : 0)) * 45;
+    const x = index + 0.5;
+    return `M${x} ${50 - amplitude}V${50 + amplitude}`;
+  }).join("");
+  return <div className={`audio-clip ${selected ? "selected" : ""}`} data-testid={`clip-${clip.id}`} style={{ left: `${start * pps}px`, width: `${Math.max(1, width * pps)}px` }} onClick={(event) => { event.stopPropagation(); if (tool === "erase") onDelete(); else if (tool === "split") onSplit(); else onSelect(); }} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onContextMenu(event.clientX, event.clientY); }} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish}>
     <button className="trim-edge trim-left" data-testid={`trim-left-${clip.id}`} aria-label="Trim clip start" onPointerDown={(event) => begin(event, "left")} />
     <div className="clip-body" onPointerDown={(event) => begin(event, "move")}><div className="clip-topline"><span className="clip-label">{clip.name}</span><button data-testid={`button-delete-clip-${clip.id}`} aria-label={`Delete ${clip.name}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onDelete(); }}><X size={12} /></button></div>
-      <div className="waveform">{visibleWaveform.map((value, index) => <span key={index} style={{ height: `${Math.max(4, value * 82)}%` }} />)}</div>
+      <svg className="waveform" viewBox={`0 0 ${Math.max(1, visibleWaveform.length)} 100`} preserveAspectRatio="none" role="img" aria-label={`${clip.name} source waveform`}>
+        <line className="waveform-baseline" x1="0" x2={Math.max(1, visibleWaveform.length)} y1="50" y2="50" />
+        <path d={waveformBars} />
+      </svg>
       <span className="clip-duration">{formatSeconds(clip.durationSeconds)}</span><span className="clip-fades" style={{ "--fade-in": `${clip.fadeInSeconds / Math.max(clip.durationSeconds, .01) * 100}%`, "--fade-out": `${clip.fadeOutSeconds / Math.max(clip.durationSeconds, .01) * 100}%` } as CSSProperties} />
     </div>
     <button className="trim-edge trim-right" data-testid={`trim-right-${clip.id}`} aria-label="Trim clip end" onPointerDown={(event) => begin(event, "right")} />
@@ -1883,7 +2103,7 @@ function MidiClipBlock({ clip, notes, selected, pps, snap, snapStep, tool, onSel
     setPreview(null); drag.current = null;
   };
   return <div className={`midi-clip ${selected ? "selected" : ""}`} data-testid={`midi-clip-${clip.id}`}
-    style={{ left: `${start * pps}px`, width: `${Math.max(62, duration * pps)}px` }}
+    style={{ left: `${start * pps}px`, width: `${Math.max(1, duration * pps)}px` }}
     onClick={(event) => { event.stopPropagation(); if (tool === "erase") onDelete(); else if (tool === "select") onSelect(); }}
     onDoubleClick={(event) => { event.stopPropagation(); onOpen(); }}
     onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onContextMenu(event.clientX, event.clientY); }}
@@ -1900,52 +2120,6 @@ function MidiClipBlock({ clip, notes, selected, pps, snap, snapStep, tool, onSel
     </button>
     <button className="midi-clip-trim" type="button" aria-label="Resize MIDI clip" onPointerDown={(event) => begin(event, "right")} />
   </div>;
-}
-
-function PianoNote({ note, selected, beatWidth, snap, tool, onSelect, onChange, onDelete, onSplit, onContextMenu }: {
-  note: MidiNote; selected: boolean; beatWidth: number; snap: boolean; tool: EditTool;
-  onSelect: () => void; onChange: (update: Partial<MidiNote>) => void; onDelete: () => void;
-  onSplit: () => void; onContextMenu: (x: number, y: number) => void;
-}) {
-  const drag = useRef<PianoNoteDragState | null>(null);
-  const [offset, setOffset] = useState<{ startBeat: number; durationBeats: number; pitch: number } | null>(null);
-  const start = offset?.startBeat ?? note.startBeat;
-  const duration = offset?.durationBeats ?? note.durationBeats;
-  const pitch = offset?.pitch ?? note.pitch;
-  return <div className={`piano-note ${selected ? "selected" : ""} ${tool === "erase" ? "eraser-target" : ""}`} data-testid={`piano-note-${note.id}`} style={{ left: `${start * beatWidth}px`, width: `${Math.max(14, duration * beatWidth)}px`, top: `${(127 - pitch) * 15}px` }} onPointerDown={(event) => {
-    if (event.button !== 0) return;
-    if (tool === "erase") { event.stopPropagation(); onDelete(); return; }
-    if (tool === "split") return;
-    event.stopPropagation(); event.preventDefault(); onSelect();
-    drag.current = {
-      pointerStartX: event.clientX,
-      pointerStartY: event.clientY,
-      startBeat: note.startBeat,
-      durationBeats: note.durationBeats,
-      pitch: note.pitch,
-      resize: (event.target as HTMLElement).classList.contains("note-resize"),
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }} onClick={(event) => { event.stopPropagation(); if (tool === "split") onSplit(); }} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); onContextMenu(event.clientX, event.clientY); }} onPointerMove={(event) => {
-    if (!drag.current) return;
-    setOffset(getPianoNoteDragUpdate(
-      drag.current,
-      event.clientX,
-      event.clientY,
-      beatWidth,
-      snap,
-    ));
-  }} onPointerUp={() => {
-    if (offset) onChange({
-      startBeat: offset.startBeat,
-      durationBeats: offset.durationBeats,
-      pitch: offset.pitch,
-    });
-    setOffset(null); drag.current = null;
-  }} onPointerCancel={() => {
-    setOffset(null);
-    drag.current = null;
-  }}><span>{pitchName(pitch)}</span><i className="note-resize" /></div>;
 }
 
 function MeterBar({ meter, id }: { meter?: Meter; id: string }) {
@@ -1965,18 +2139,6 @@ function MeterBar({ meter, id }: { meter?: Meter; id: string }) {
 function beatsPerBar(meter: string): number { const [top] = meter.split("/").map(Number); return top || 4; }
 function clamp(value: number, low: number, high: number): number { return Math.max(low, Math.min(high, Number.isFinite(value) ? value : low)); }
 function formatSeconds(seconds: number): string { return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`; }
-function pitchName(pitch: number): string { return `${["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"][pitch % 12]}${Math.floor(pitch / 12) - 1}`; }
-function isBlackKey(pitch: number): boolean { return [1, 3, 6, 8, 10].includes(pitch % 12); }
-function waveformPeaks(buffer: AudioBuffer): number[] {
-  const channel = buffer.getChannelData(0);
-  return Array.from({ length: 112 }, (_, index) => {
-    const from = Math.floor(index * channel.length / 112);
-    const to = Math.max(from + 1, Math.floor((index + 1) * channel.length / 112));
-    let peak = 0;
-    for (let sample = from; sample < to; sample += 1) peak = Math.max(peak, Math.abs(channel[sample]));
-    return peak;
-  });
-}
 function appendRecordedClip(session: SongSession, clip: AudioClip, trackId?: string): SongSession {
   if (session.tracks.some((track) => track.clips.some((item) => item.id === clip.id))) return session;
   const track = session.tracks.find((item) => item.id === trackId) ??
