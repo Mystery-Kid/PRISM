@@ -2,3 +2,4 @@
 - [GitHub artifact downloads](github-artifact-downloads.md) — direct archive URLs may bypass the authenticated proxy; use a relative gh api archive request.
 - [Desktop theme verification](desktop-theme-verification.md) — Windows CI may default to reduced motion; native screenshots need compositor settling after DOM changes.
 - [Instrument sound compatibility](instrument-sound-compatibility.md) — saved engine IDs freeze their sound; use new versioned IDs for future sonic changes, not silent reinterpretation.
+- [Desktop persistence verification](desktop-persistence-verification.md) — await saved control values before comparing state; immediate UI changes can precede debounced disk writes.

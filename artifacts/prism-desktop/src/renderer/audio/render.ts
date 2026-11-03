@@ -81,7 +81,10 @@ export async function renderSessionWav(
   )) || (session.buses ?? []).some((bus) => bus.effects.some((effect) =>
     effect.enabled && (effect.type === "reverb" || effect.type === "delay"),
   ));
-  const tailSeconds = hasTail ? 4 : 0;
+  const hasModulationTail = [...session.masterEffects, ...session.tracks.flatMap(track => track.effects),
+    ...(session.buses ?? []).flatMap(bus => bus.effects)]
+    .some(effect => effect.enabled && (effect.type === "chorus" || effect.type === "flanger" || effect.type === "phaser"));
+  const tailSeconds = hasTail ? 4 : hasModulationTail ? .5 : 0;
   const exportDuration = Math.max(duration, sampleEnd);
   if (exportDuration + tailSeconds > maximumExportSeconds) {
     throw new Error("WAV export including sample and effect tails is limited to 10 minutes.");

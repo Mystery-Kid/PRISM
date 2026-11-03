@@ -105,7 +105,9 @@ export type InstrumentPreset = {
   updatedAt: string;
 };
 
-export type EffectType = "equalizer" | "reverb" | "delay" | "compressor";
+export type EffectType = "equalizer" | "reverb" | "delay" | "compressor"
+  | "distortion" | "overdrive" | "fuzz" | "noise-gate"
+  | "chorus" | "flanger" | "phaser" | "limiter";
 
 export type EffectState = {
   id: string;

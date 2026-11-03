@@ -10,6 +10,7 @@
       import { renderSessionWav } from "./render.ts";
       import { AudioEngine } from "./AudioEngine.ts";
       import { runInstrumentAudioChecks } from "./instrument-audio-checks.ts";
+      import { runPedalboardAudioChecks } from "./pedalboard-audio-checks.ts";
       import { encodeAudioBufferWav } from "./wav.ts";
       import { createElement, useState } from "react";
       import { createRoot } from "react-dom/client";
@@ -932,7 +933,8 @@
         }
 
         const instrumentChecks = await runInstrumentAudioChecks();
-        result.textContent = `PASS: MIDI, sampler and drum audio rendering, drum step sequencing, bus routing/effects, live sample meters/preview, transport and recovery; WAV peak ${peak}. Instruments: ${instrumentChecks.join("; ")}.`;
+        const pedalChecks = await runPedalboardAudioChecks();
+        result.textContent = `PASS: MIDI, sampler and drum audio rendering, drum step sequencing, bus routing/effects, live sample meters/preview, transport and recovery; WAV peak ${peak}. Instruments: ${instrumentChecks.join("; ")}. Pedals: ${pedalChecks.join("; ")}.`;
         document.body.dataset.testResult = "pass";
       } catch (error) {
         result.textContent = `FAIL: ${error instanceof Error ? error.message : String(error)}`;

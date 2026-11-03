@@ -41,8 +41,8 @@ contain the selected track's concrete instrument/parameter state and referenced
 sample WAVs; unrelated global presets are not exported. Full library backups
 include the global preset collection.
 
-Library schema 6 accepts schemas 1–5. The existing library loader makes a backup
-before writing migrated data. Older PRISM builds reject schema 6 instead of
+Library schema 7 accepts schemas 1–6. The existing library loader makes a backup
+before writing migrated data. Older PRISM builds reject newer schemas instead of
 silently stripping the new instrument information.
 
 Unavailable instrument IDs are not substituted with a generic oscillator.

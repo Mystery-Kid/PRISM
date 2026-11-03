@@ -46,6 +46,7 @@
       "build/prism-512.png",
       "FACTORY-SOUNDS-LICENSE.txt",
       "INSTRUMENT-LIBRARY.md",
+      "PEDALBOARD.md",
       "package.json"
     ],
     "win": {

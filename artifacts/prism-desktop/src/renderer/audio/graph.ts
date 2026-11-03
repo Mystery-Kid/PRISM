@@ -16,6 +16,8 @@ type EffectChain = {
   first: AudioNode;
   handles: EffectHandle[];
   outputLevel: GainNode;
+  retireTimer?: ReturnType<typeof setTimeout>;
+  disposed?: boolean;
 };
 
 function sameEffectLayout(left: EffectState[], right: EffectState[]): boolean {
@@ -53,6 +55,9 @@ function fadeGain(context: BaseAudioContext, gain: GainNode, target: number): vo
 }
 
 function disposeEffectChain(input: AudioNode, chain: EffectChain): void {
+  if (chain.disposed) return;
+  chain.disposed = true;
+  if (chain.retireTimer) clearTimeout(chain.retireTimer);
   try {
     input.disconnect(chain.first);
   } catch {
@@ -68,11 +73,16 @@ function transitionEffectChain(
   destination: AudioNode,
   previous: EffectChain,
   effects: EffectState[],
+  retiring: Set<EffectChain>,
 ): EffectChain {
   const next = buildEffectChain(context, input, destination, effects, 0);
   fadeGain(context, previous.outputLevel, 0);
   fadeGain(context, next.outputLevel, 1);
-  window.setTimeout(() => disposeEffectChain(input, previous), 100);
+  retiring.add(previous);
+  previous.retireTimer = setTimeout(() => {
+    disposeEffectChain(input, previous);
+    retiring.delete(previous);
+  }, 100);
   return next;
 }
 
@@ -97,11 +107,12 @@ export function createTrackGraph(
   if (destination) analyser.connect(destination);
 
   let effects = track.effects;
+  const retiring = new Set<EffectChain>();
   let chain = buildEffectChain(context, input, audibility, track.effects, 1);
 
   const update = (updated: Track, isAudible: boolean) => {
     if (!sameEffectLayout(effects, updated.effects)) {
-      chain = transitionEffectChain(context, input, audibility, chain, updated.effects);
+      chain = transitionEffectChain(context, input, audibility, chain, updated.effects, retiring);
     } else {
       updated.effects.forEach((effect, index) => chain.handles[index]?.update(effect));
       effects = updated.effects;
@@ -137,6 +148,8 @@ export function createTrackGraph(
       fader.disconnect();
       analyser.disconnect();
       disposeEffectChain(input, chain);
+      retiring.forEach((item) => disposeEffectChain(input, item));
+      retiring.clear();
     },
   };
 }
@@ -169,10 +182,11 @@ export function createBusGraph(
   if (destination) analyser.connect(destination);
 
   let effects = bus.effects;
+  const retiring = new Set<EffectChain>();
   let chain = buildEffectChain(context, input, audibility, bus.effects, 1);
   const update = (updated: AudioBus, isAudible: boolean) => {
     if (!sameEffectLayout(effects, updated.effects)) {
-      chain = transitionEffectChain(context, input, audibility, chain, updated.effects);
+      chain = transitionEffectChain(context, input, audibility, chain, updated.effects, retiring);
     } else {
       updated.effects.forEach((effect, index) => chain.handles[index]?.update(effect));
     }
@@ -202,6 +216,8 @@ export function createBusGraph(
       fader.disconnect();
       analyser.disconnect();
       disposeEffectChain(input, chain);
+      retiring.forEach((item) => disposeEffectChain(input, item));
+      retiring.clear();
     },
   };
 }
@@ -342,6 +358,7 @@ export function createMasterGraph(
   analyser.connect(destination);
 
   let effects = initialEffects;
+  const retiring = new Set<EffectChain>();
   let chain = buildEffectChain(context, input, fader, initialEffects, 1);
 
   return {
@@ -350,7 +367,7 @@ export function createMasterGraph(
     analyser,
     update(nextVolume, nextEffects) {
       if (!sameEffectLayout(effects, nextEffects)) {
-        chain = transitionEffectChain(context, input, fader, chain, nextEffects);
+        chain = transitionEffectChain(context, input, fader, chain, nextEffects, retiring);
       } else {
         nextEffects.forEach((effect, index) => chain.handles[index]?.update(effect));
       }
@@ -366,6 +383,8 @@ export function createMasterGraph(
       fader.disconnect();
       analyser.disconnect();
       disposeEffectChain(input, chain);
+      retiring.forEach((item) => disposeEffectChain(input, item));
+      retiring.clear();
     },
   };
 }

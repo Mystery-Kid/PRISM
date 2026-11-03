@@ -8,12 +8,13 @@ export type EffectParameterDefinition = {
   step: number;
   defaultValue: number;
   unit?: string;
+  advanced?: boolean;
 };
 
 export type NativeEffectDefinition = {
   type: EffectType;
   label: string;
-  category: "Tone" | "Space" | "Dynamics";
+  category: "Tone" | "Space" | "Dynamics" | "Drive" | "Modulation";
   description: string;
   searchTerms: string[];
   parameters: EffectParameterDefinition[];
@@ -67,6 +68,52 @@ export const nativeEffectCatalog: NativeEffectDefinition[] = [
       { key: "attack", label: "Attack", min: 0.001, max: 1, step: 0.001, defaultValue: 0.003, unit: "s" },
       { key: "release", label: "Release", min: 0.01, max: 2, step: 0.01, defaultValue: 0.25, unit: "s" },
       { key: "knee", label: "Knee", min: 0, max: 40, step: 1, defaultValue: 12, unit: "dB" },
+    ],
+  },
+  ...(["distortion", "overdrive", "fuzz"] as const).map((type): NativeEffectDefinition => ({
+    type, label: type === "overdrive" ? "Overdrive" : type === "fuzz" ? "Fuzz" : "Distortion",
+    category: "Drive",
+    description: type === "overdrive" ? "Soft asymmetric saturation with tone and output trim."
+      : type === "fuzz" ? "Hard, asymmetric fuzz with DC removal and tone shaping."
+      : "Symmetric soft clipping with tone shaping and output trim.",
+    searchTerms: ["guitar", "bass", "saturation", "drive", "clip"],
+    parameters: [
+      { key: "drive", label: "Drive", min: 1, max: 30, step: .1, defaultValue: type === "fuzz" ? 12 : 4 },
+      { key: "tone", label: "Tone", min: 200, max: 16000, step: 10, defaultValue: 5000, unit: "Hz" },
+      { key: "level", label: "Output", min: -30, max: 6, step: .1, defaultValue: -9, unit: "dB" },
+      { key: "mix", label: "Mix", min: 0, max: 1, step: .01, defaultValue: 1, advanced: true },
+    ],
+  })),
+  {
+    type: "noise-gate", label: "Noise Gate", category: "Dynamics",
+    description: "Envelope-controlled gate for quiet passages; not broadband noise removal.",
+    searchTerms: ["vocal", "noise", "gate", "threshold", "guitar"],
+    parameters: [
+      { key: "threshold", label: "Threshold", min: -60, max: -6, step: .5, defaultValue: -36, unit: "dB" },
+      { key: "response", label: "Response", min: 1, max: 100, step: 1, defaultValue: 10, unit: "ms" },
+      { key: "floor", label: "Floor", min: -80, max: -6, step: 1, defaultValue: -80, unit: "dB" },
+    ],
+  },
+  ...(["chorus", "flanger", "phaser"] as const).map((type): NativeEffectDefinition => ({
+    type, label: type[0].toUpperCase() + type.slice(1), category: "Modulation",
+    description: type === "phaser" ? "Four swept all-pass stages create moving notches."
+      : type === "flanger" ? "Short modulated delay with bounded feedback creates comb filtering."
+      : "A modulated delayed voice thickens the original signal.",
+    searchTerms: ["guitar", "synth", "lfo", "sweep", "modulation"],
+    parameters: [
+      { key: "rate", label: "Rate", min: .05, max: 8, step: .05, defaultValue: .7, unit: "Hz" },
+      { key: "depth", label: "Depth", min: 0, max: 1, step: .01, defaultValue: .6 },
+      { key: "mix", label: "Mix", min: 0, max: 1, step: .01, defaultValue: .4 },
+      ...(type === "flanger" ? [{ key: "feedback", label: "Feedback", min: 0, max: .85, step: .01, defaultValue: .35, advanced: true }] : []),
+    ],
+  })),
+  {
+    type: "limiter", label: "Peak Clip Limiter", category: "Dynamics",
+    description: "Zero-lookahead sample-peak hard ceiling with input gain. Not a transparent true-peak mastering limiter.",
+    searchTerms: ["master", "bus", "peak", "ceiling", "clip", "limiter"],
+    parameters: [
+      { key: "input", label: "Input", min: -12, max: 24, step: .1, defaultValue: 0, unit: "dB" },
+      { key: "ceiling", label: "Ceiling", min: -24, max: 0, step: .1, defaultValue: -1, unit: "dB" },
     ],
   },
 ];

@@ -4,19 +4,27 @@ import { join } from "node:path";
 import { verifyInstalledEditor } from "./editor-smoke";
 import { captureThemeScreenshot, verifyInitialDay, verifyInstalledThemes } from "./theme-smoke";
 import { verifyInstalledInstruments } from "./instrument-smoke";
+import { verifyInstalledPedals } from "./pedalboard-smoke";
 
 /** Opt-in installed-app check. Always uses isolated userData supplied by CI. */
 export async function runDesktopSmoke(window: BrowserWindow, directory: string, reopen: boolean): Promise<void> {
   const themeRestart = process.argv.includes("--prism-theme-reopen");
   const instrumentCreate = process.argv.includes("--prism-instrument-create");
   const instrumentRestart = process.argv.includes("--prism-instrument-reopen");
-  const report = join(directory, instrumentCreate ? "instruments-create.json" : instrumentRestart ? "instruments-reopen.json" :
+  const pedalCreate = process.argv.includes("--prism-pedal-create");
+  const pedalRestart = process.argv.includes("--prism-pedal-reopen");
+  const report = join(directory, pedalCreate ? "pedals-create.json" : pedalRestart ? "pedals-reopen.json" : instrumentCreate ? "instruments-create.json" : instrumentRestart ? "instruments-reopen.json" :
     themeRestart ? "theme-reopen.json" : reopen ? "reopen.json" : "first-launch.json");
   const timer = setTimeout(() => {
     void writeFile(report, JSON.stringify({ ok: false, error: "Installed app check timed out." }))
       .finally(() => app.exit(1));
   }, 100_000);
   try {
+    if (pedalCreate || pedalRestart) {
+      const checks = await verifyInstalledPedals(window, directory, pedalRestart);
+      await writeFile(report, JSON.stringify({ ok: true, checks }, null, 2));
+      clearTimeout(timer); app.exit(0); return;
+    }
     if (instrumentCreate || instrumentRestart) {
       const checks = await verifyInstalledInstruments(window, directory, instrumentRestart);
       await writeFile(report, JSON.stringify({ ok: true, checks }, null, 2));
