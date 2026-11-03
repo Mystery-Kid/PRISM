@@ -1,3 +1,4 @@
+import { validateNativePlugin, validateNativeSession, type NativePluginState } from "./native-plugins";
 import type {
   AudioClip,
   AudioBus,
@@ -40,7 +41,7 @@ const assetStorageNamePattern =
 export type StoredAsset = ProjectAsset & { storageName: string };
 
 export type ProjectLibrary = {
-  version: 8;
+  version: 9;
   releases: Release[];
   sessions: SongSession[];
   assets: StoredAsset[];
@@ -97,7 +98,7 @@ export function migrateProjectLibrary(value: unknown): ProjectLibrary {
   const source = record(value);
   const version = Number(source.version);
   if (
-    ![1, 2, 3, 4, 5, 6, 7, 8].includes(version) ||
+    ![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(version) ||
     !Array.isArray(source.releases) ||
     !Array.isArray(source.sessions) ||
     (source.assets !== undefined && !Array.isArray(source.assets)) ||
@@ -194,7 +195,8 @@ export function migrateProjectLibrary(value: unknown): ProjectLibrary {
   }
   const instrumentPresets = Array.isArray(source.instrumentPresets)
     ? source.instrumentPresets.map(normalizeInstrumentPreset) : [];
-  return { ...source, version: 8, releases, sessions, assets, effectPresets, instrumentPresets } as ProjectLibrary;
+  sessions.forEach(validateNativeSession);
+  return { ...source, version: 9, releases, sessions, assets, effectPresets, instrumentPresets } as ProjectLibrary;
 }
 
 function migrateEffects(value: unknown): EffectState[] {
@@ -237,6 +239,7 @@ function migrateBus(value: unknown, index: number): AudioBus {
       : null,
     sends: migrateSends(bus.sends),
     effects: migrateEffects(bus.effects),
+    ...(bus.nativeEffects !== undefined ? { nativeEffects: nativeEffects(bus.nativeEffects) } : {}),
   };
 }
 
@@ -497,6 +500,8 @@ function migrateTrack(value: unknown, index: number): Track {
     drumKit,
     instrumentRecovery,
     effects: migrateEffects(track.effects),
+    ...(track.nativeInstrument !== undefined ? { nativeInstrument: nativeInstrument(track.nativeInstrument) } : {}),
+    ...(track.nativeEffects !== undefined ? { nativeEffects: nativeEffects(track.nativeEffects) } : {}),
     outputBusId: typeof track.outputBusId === "string" && track.outputBusId.trim()
       ? track.outputBusId
       : null,
@@ -544,8 +549,22 @@ export function migrateSongSession(value: unknown): SongSession {
     metronomeEnabled: session.metronomeEnabled === true,
     masterVolume: Math.min(1.5, Math.max(0, finite(session.masterVolume, 1))),
     masterEffects: migrateEffects(session.masterEffects),
+    ...(session.nativeMasterEffects !== undefined ? { nativeMasterEffects: nativeEffects(session.nativeMasterEffects) } : {}),
     buses,
     tracks,
     updatedAt: typeof session.updatedAt === "string" ? session.updatedAt : new Date().toISOString(),
   };
+}
+
+function nativeInstrument(value: unknown): NativePluginState | null {
+  if (value == null) return null;
+  validateNativePlugin(value);
+  if (value.kind !== "instrument") throw new Error("A saved VST3 instrument has an invalid role. The original project was not changed.");
+  return structuredClone(value);
+}
+function nativeEffects(value: unknown): NativePluginState[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 32) throw new Error("Unsupported VST3 effect chain; the original project was not changed.");
+  for (const plugin of value) { validateNativePlugin(plugin); if (plugin.kind !== "effect") throw new Error("A VST3 effect has an invalid role."); }
+  return structuredClone(value);
 }

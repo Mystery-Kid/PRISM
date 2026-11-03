@@ -45,7 +45,7 @@ test("schema 6 upgrades without changing legacy effects and schema 7 retains all
   const old = migrateProjectLibrary({ version: 6, releases: [], assets: [], sessions: [{
     id: "song", releaseId: "release", title: "Legacy pedals", tracks: [{ id: "track", effects: [legacy] }],
   }] });
-  assert.equal(old.version, 8);
+  assert.equal(old.version, 9);
   assert.deepEqual(old.sessions[0].tracks[0].effects, [legacy]);
   const chain = nativeEffectCatalog.map(def => ({
     id: def.type, type: def.type, enabled: def.type !== "flanger", parameters: effectDefaults(def.type),

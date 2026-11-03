@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import {
   AudioLines, Circle, CircleStop, Headphones, Music2, Pause, Play, Plus,
-  Keyboard, Redo2, Save, SkipBack, SlidersHorizontal, Sparkles, Trash2, Undo2, Volume2, VolumeX, X,
+  Keyboard, PlugZap, Redo2, Save, SkipBack, SlidersHorizontal, Sparkles, Trash2, Undo2, Volume2, VolumeX, X,
   PanelBottom,
 } from "lucide-react";
 import type {
@@ -40,6 +40,7 @@ import {
   clientXToTimelineSeconds,
 } from "./arrangement-layout";
 import { EffectsPanel } from "./EffectsPanel";
+import { NativePluginManager } from "./NativePluginManager";
 import { RoutingPanel } from "./RoutingPanel";
 import { SamplerPanel } from "./SamplerPanel";
 import { DrumPanel } from "./DrumPanel";
@@ -157,7 +158,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const [monitoring, setMonitoring] = useState(false);
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState("");
-  const [panel, setPanel] = useState<"mixer" | "clip" | "piano" | "sampler" | "drums" | "effects" | "routing" | "devices">("mixer");
+  const [panel, setPanel] = useState<"mixer" | "clip" | "piano" | "sampler" | "drums" | "effects" | "routing" | "devices" | "native">("mixer");
   const [activeEditor, setActiveEditor] = useState<ShortcutContext>("arrangement");
   const [selectedEffectBusId, setSelectedEffectBusId] = useState("");
   const [notice, setNotice] = useState("");
@@ -1849,13 +1850,16 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     }} />}
     {inspectorVisible ? <section className={`workstation-bottom ${panel === "effects" ? "effects-open" : ""} ${panel === "routing" ? "routing-open" : ""} ${panel === "sampler" ? "sampler-open" : ""} ${panel === "drums" ? "drums-open" : ""}`} style={{ flexBasis: `${dockHeight}px` }} onPointerDown={() => setActiveEditor(activeShortcutContext(panel))}>
       <nav className="lower-panel-tabs" aria-label="Workstation panels">
-        {(["mixer", "clip", "piano", "sampler", "drums", "effects", "routing", "devices"] as const).map((tab) => <button key={tab} className={`lower-tab ${panel === tab ? "active" : ""}`} data-testid={`tab-${tab}`} onClick={() => { if (tab === "effects") setSelectedEffectBusId(""); setPanel(tab); setActiveEditor(activeShortcutContext(tab)); }}>{tab === "mixer" ? <SlidersHorizontal size={13} /> : tab === "clip" ? <AudioLines size={13} /> : tab === "piano" || tab === "drums" ? <Music2 size={13} /> : tab === "sampler" || tab === "routing" ? <AudioLines size={13} /> : tab === "effects" ? <Sparkles size={13} /> : <Headphones size={13} />}{tab === "clip" ? "Clip" : tab === "devices" ? "I/O" : tab[0].toUpperCase() + tab.slice(1)}</button>)}
+        {(["mixer", "clip", "piano", "sampler", "drums", "effects", "routing", "devices", "native"] as const).map((tab) => <button key={tab} className={`lower-tab ${panel === tab ? "active" : ""}`} data-testid={`tab-${tab}`} onClick={() => { if (tab === "effects") setSelectedEffectBusId(""); setPanel(tab); setActiveEditor(activeShortcutContext(tab)); }}>{tab === "mixer" ? <SlidersHorizontal size={13} /> : tab === "clip" ? <AudioLines size={13} /> : tab === "piano" || tab === "drums" ? <Music2 size={13} /> : tab === "sampler" || tab === "routing" ? <AudioLines size={13} /> : tab === "effects" ? <Sparkles size={13} /> : tab === "native" ? <PlugZap size={13} /> : <Headphones size={13} />}{tab === "clip" ? "Clip" : tab === "devices" ? "I/O" : tab === "native" ? "VST3" : tab[0].toUpperCase() + tab.slice(1)}</button>)}
         <InstrumentBrowser
           track={selectedPatternTrack}
-          onChange={updateTrack}
+          onChange={(id, update) => updateTrack(id, { ...update, nativeInstrument: null })}
           onPreview={previewSampleNote}
           onAssetsChanged={() => window.prism.listAudioAssets().then((assets) => setAudioAssets(assets))}
         />
+        {selectedPatternTrack?.nativeInstrument && <span className="pattern-track-label">
+          VST3: {selectedPatternTrack.nativeInstrument.name}{selectedPatternTrack.nativeInstrument.enabled ? "" : " (bypassed)"}
+        </span>}
       </nav>
       {panel === "mixer" && <div className="mixer-channels">
         {session.tracks.map((track) => <div className="mixer-channel" key={track.id}>
@@ -1998,6 +2002,14 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         onUpdateBusEffects={(busId, effects) => setSession((current) => ({ ...current, buses: current.buses.map((bus) => bus.id === busId ? { ...bus, effects } : bus) }))}
         onUpdateMasterEffects={(effects) => setSession((current) => ({ ...current, masterEffects: effects }))}
         onNotice={setNotice}
+      />}
+      {panel === "native" && snapshot.recording && <p>Finish recording before changing native plugins.</p>}
+      {panel === "native" && !snapshot.recording && <NativePluginManager
+        session={session}
+        selectedTrack={selectedTrackData}
+        setSession={setSession}
+        updateTrack={updateTrack}
+        onStopPlayback={() => { engine?.pause(); }}
       />}
       {panel === "devices" && <div className="devices-panel">
         <label>Audio input<select data-testid="select-audio-input" value={inputDevice} onChange={(event) => { setInputDevice(event.target.value); localStorage.setItem("prism.audioInput", event.target.value); }}>{inputDevices.map((device) => <option key={device.id} value={device.id}>{device.label}</option>)}</select></label>

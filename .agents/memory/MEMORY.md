@@ -4,3 +4,5 @@
 - [Instrument sound compatibility](instrument-sound-compatibility.md) — saved engine IDs freeze their sound; use new versioned IDs for future sonic changes, not silent reinterpretation.
 - [Desktop persistence verification](desktop-persistence-verification.md) — await saved control values before comparing state; immediate UI changes can precede debounced disk writes.
 - [Derived audio history](derived-audio-history.md) — snapshot decoded, serialized media metadata before committing an undoable audio transformation.
+- [Native MIDI block compatibility](native-midi-block-compatibility.md) — test notes after silence, not only at frame zero; offline MDA fixtures need MIDI-boundary block splitting.
+- [Native plugin direction](native-plugin-direction.md) — user approved buffered VST3 integration, not a replacement of the working Web Audio engine.

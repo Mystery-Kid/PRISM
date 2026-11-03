@@ -13,6 +13,7 @@ import { getClipWindow, getSessionDuration } from "./timeline";
 import { createMidiEnvelopePlan, midiPitchToFrequency } from "./midi";
 import { instrumentIsAvailable, getInstrumentId } from "@shared/instrument-library";
 import { instrumentReleaseTail, scheduleInstrumentVoice } from "./instrument-voice";
+import { hasNativePlugins, renderNativeSessionBuffer } from "./native-render";
 
 const exportSampleRate = 48_000;
 const maximumExportSeconds = 10 * 60;
@@ -21,6 +22,19 @@ export async function renderSessionWav(
   session: SongSession,
   getAudio: (assetId: string) => Promise<AudioBuffer>,
 ): Promise<Uint8Array> {
+  return encodeAudioBufferWav(hasNativePlugins(session)
+    ? (await renderNativeSessionBuffer(session, getAudio)).audio
+    : await renderBuiltinSessionBuffer(session, getAudio));
+}
+
+export async function renderBuiltinSessionBuffer(
+  session: SongSession,
+  getAudio: (assetId: string) => Promise<AudioBuffer>,
+): Promise<AudioBuffer> {
+  // Bypassing an assigned VST3 instrument means silence, not an unexpected
+  // fallback to a different builtin sound. Removing the assignment restores it.
+  session = { ...session, tracks: session.tracks.map(track =>
+    track.nativeInstrument ? { ...track, notes: [] } : track) };
   const duration = getSessionDuration(session);
   if (duration <= 0) throw new Error("Add audio or MIDI notes before exporting a song.");
   if (duration > maximumExportSeconds) {
@@ -170,7 +184,7 @@ export async function renderSessionWav(
   graphs.forEach((graph) => graph.dispose());
   busGraphs.forEach((graph) => graph.dispose());
   master.dispose();
-  return encodeAudioBufferWav(rendered);
+  return rendered;
 }
 
 function scheduleOfflineNote(
@@ -210,7 +224,7 @@ function scheduleOfflineSample(
   source.start(start);
 }
 
-function scheduleOfflineMetronome(
+export function scheduleOfflineMetronome(
   context: OfflineAudioContext,
   session: SongSession,
   destination: AudioNode,

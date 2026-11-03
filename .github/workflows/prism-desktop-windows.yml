@@ -33,6 +33,22 @@ jobs:
       - name: Typecheck PRISM
         run: pnpm --filter @workspace/prism-desktop run typecheck
 
+      - name: Build genuine native VST3 host and isolated legal fixtures
+        shell: pwsh
+        run: |
+          cmake -S artifacts/prism-desktop/native/vst-host -B generated-artifacts/prism-native-build -A x64 -DPRISM_VST_TEST_FIXTURES=ON
+          if ($LASTEXITCODE -ne 0) { throw "Native configure failed." }
+          cmake --build generated-artifacts/prism-native-build --config Release --target prism-vst-host mda-vst3 prism-host-test-probe --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "Native compilation failed." }
+          $runtime = "generated-artifacts/prism-native-runtime"
+          New-Item -ItemType Directory -Force $runtime | Out-Null
+          Copy-Item generated-artifacts/prism-native-build/Release/prism-vst-host.exe $runtime/
+          Copy-Item generated-artifacts/prism-native-build/notices $runtime/ -Recurse
+          $hostExe = Resolve-Path "$runtime/prism-vst-host.exe"
+          $plugin = Resolve-Path generated-artifacts/prism-native-build/VST3/Release/mda-vst3.vst3
+          pnpm --filter @workspace/prism-desktop exec tsx scripts/test-native-vst.ts "$hostExe" "$plugin"
+          if ($LASTEXITCODE -ne 0) { throw "Real native instrument/effect processing failed." }
+
       - name: Run PRISM audio and persistence tests
         run: pnpm --filter @workspace/prism-desktop run test
 
@@ -42,6 +58,7 @@ jobs:
           pnpm --filter @workspace/prism-desktop run test:arrangement
           pnpm --filter @workspace/prism-desktop run test:instruments
           pnpm --filter @workspace/prism-desktop run test:tempo
+          pnpm --filter @workspace/prism-desktop exec tsx --test src/shared/native-plugins.test.ts
 
       - name: Check audio rendering, effects, and transport
         shell: pwsh

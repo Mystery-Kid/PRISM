@@ -10,6 +10,13 @@ import type {
 } from "@shared/types";
 
 const bridge: AppBridge = {
+  nativePluginStatus: () => ipcRenderer.invoke("prism:native:status"),
+  addNativePluginFolder: () => ipcRenderer.invoke("prism:native:add-folder"),
+  scanNativePlugins: () => ipcRenderer.invoke("prism:native:scan"),
+  inspectNativePlugin: (classId) => ipcRenderer.invoke("prism:native:inspect", classId),
+  editNativePlugin: (plugin) => ipcRenderer.invoke("prism:native:edit", plugin),
+  processNativePlugin: (input) => ipcRenderer.invoke("prism:native:process", input),
+  cancelNativeProcessing: () => ipcRenderer.invoke("prism:native:cancel"),
   listInstrumentPresets: () => ipcRenderer.invoke("prism:instruments:presets:list"),
   saveInstrumentPreset: (preset) => ipcRenderer.invoke("prism:instruments:presets:save", preset),
   deleteInstrumentPreset: (id) => ipcRenderer.invoke("prism:instruments:presets:delete", id),

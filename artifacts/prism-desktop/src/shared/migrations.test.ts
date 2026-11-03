@@ -329,7 +329,7 @@ test("version-one project library upgrades to the current schema", () => {
   });
 
   assert.deepEqual(migrated, {
-    version: 8,
+    version: 9,
     releases: [],
     sessions: [],
     assets: [],
@@ -418,7 +418,7 @@ for (const version of [4, 5]) {
       effectPresets: [],
     });
     const reopened = migrateProjectLibrary(JSON.parse(JSON.stringify(migrated)));
-    assert.equal(reopened.version, 8);
+    assert.equal(reopened.version, 9);
     assert.deepEqual(reopened.sessions[0].buses, migrated.sessions[0].buses);
     assert.deepEqual(reopened.sessions[0].tracks, migrated.sessions[0].tracks);
     assert.equal(reopened.sessions[0].tracks[0].sampler?.sampleAssetId, "sample-id");
