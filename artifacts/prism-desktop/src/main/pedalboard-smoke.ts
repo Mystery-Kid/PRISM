@@ -107,7 +107,9 @@ export async function verifyInstalledPedals(window: BrowserWindow, directory: st
     $('effect-unit-'+id).querySelector('[aria-label="Duplicate Distortion"]').click();
     await wait(async()=>(await current()).length===13,'duplicate pedal');
     const copy=(await current())[1];
-    assert(copy.id!==id&&copy.parameters.drive===before,'Duplicate shares identity or loses parameters');
+    const original=(await current())[0];
+    assert(copy.id!==id&&copy.parameters.drive===original.parameters.drive,
+      'Duplicate shares identity or loses parameters: '+JSON.stringify({copy,original}));
     $('effect-unit-'+copy.id).querySelector('[aria-label="Remove Distortion"]').click();
     await wait(async()=>(await current()).length===12,'remove duplicate');
     // Same browser and processor definitions are used for audio, bus and master.

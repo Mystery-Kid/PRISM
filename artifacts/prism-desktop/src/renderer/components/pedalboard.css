@@ -1,3 +1,6 @@
+.effects-workspace:has(.pedalboard-list) {
+  grid-template-columns: 180px minmax(0, 1fr) 260px;
+}
 .effect-chain-workspace {
   --pedal-bg: var(--theme-panel, #191c20);
   --pedal-raised: var(--theme-panel-raised, #22262b);
@@ -220,6 +223,11 @@ html[data-theme] .effect-unit.pedal-unit:focus-visible {
 .effect-chain-empty { flex: 1 0 auto; padding: 18px 5px; }
 
 @media (max-width: 690px) {
+  .effects-workspace:has(.pedalboard-list) {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+  .effects-workspace:has(.pedalboard-list) > section { min-height: 220px; overflow: auto; }
   .pedalboard-list { gap: 8px; }
   html[data-theme] .effect-unit.pedal-unit { flex-basis: 100%; width: 100%; max-width: none; }
   .pedal-controls { justify-content: space-around; }
