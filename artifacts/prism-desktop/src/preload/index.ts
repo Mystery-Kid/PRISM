@@ -10,6 +10,17 @@ import type {
 } from "@shared/types";
 
 const bridge: AppBridge = {
+  nativePluginStatus: () => ipcRenderer.invoke("prism:native:status"),
+  addNativePluginFolder: () => ipcRenderer.invoke("prism:native:add-folder"),
+  scanNativePlugins: () => ipcRenderer.invoke("prism:native:scan"),
+  inspectNativePlugin: (classId) => ipcRenderer.invoke("prism:native:inspect", classId),
+  editNativePlugin: (plugin) => ipcRenderer.invoke("prism:native:edit", plugin),
+  processNativePlugin: (input) => ipcRenderer.invoke("prism:native:process", input),
+  cancelNativeProcessing: () => ipcRenderer.invoke("prism:native:cancel"),
+  listInstrumentPresets: () => ipcRenderer.invoke("prism:instruments:presets:list"),
+  saveInstrumentPreset: (preset) => ipcRenderer.invoke("prism:instruments:presets:save", preset),
+  deleteInstrumentPreset: (id) => ipcRenderer.invoke("prism:instruments:presets:delete", id),
+  getFactoryDrumKit: () => ipcRenderer.invoke("prism:instruments:drums"),
   saveProjectAs: (session) => ipcRenderer.invoke("prism:project:save-as", session),
   openProject: () => ipcRenderer.invoke("prism:project:open"),
   getAppVersion: () => ipcRenderer.invoke("prism:app:version"),
@@ -41,6 +52,7 @@ const bridge: AppBridge = {
     ipcRenderer.invoke("prism:songs:reorder", releaseId, songIds),
   saveSession: (session: SongSession) =>
     ipcRenderer.invoke("prism:sessions:save", session),
+  storeTempoMedia: (media) => ipcRenderer.invoke("prism:audio:tempo-media", media),
   listEffectPresets: (projectId: string) =>
     ipcRenderer.invoke("prism:effects:presets:list", projectId),
   saveEffectPreset: (preset: Omit<EffectChainPreset, "createdAt" | "updatedAt">) =>

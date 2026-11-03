@@ -32,6 +32,12 @@ export type AudioClip = {
   fadeInSeconds: number;
   fadeOutSeconds: number;
   waveform: number[];
+  tempoAdaptation?: {
+    algorithm: "prism-wsola-v1";
+    originalAssetId: string;
+    originalTempo: number;
+    lengthRatio: number;
+  };
 };
 
 export type TrackType = "audio" | "instrument" | "sampler" | "drum" | "unsupported";
@@ -54,6 +60,11 @@ export type MidiClip = {
 };
 
 export type InstrumentState = {
+  /** Absent in legacy projects: retain the original custom oscillator sound. */
+  instrumentId?: string;
+  parameters?: Record<string, number>;
+  presetName?: string;
+  presetId?: string;
   waveform: OscillatorType;
   attack: number;
   decay: number;
@@ -76,6 +87,7 @@ export type DrumPadState = {
 };
 
 export type DrumKitState = {
+  instrumentId?: string;
   pads: DrumPadState[];
   patternLengthBars?: number;
   patternStartBeat?: number;
@@ -87,7 +99,21 @@ export type InstrumentRecoveryState = {
   message: string;
 };
 
-export type EffectType = "equalizer" | "reverb" | "delay" | "compressor";
+export type InstrumentPreset = {
+  id: string;
+  name: string;
+  version: 1;
+  type: "instrument" | "sampler" | "drum";
+  instrument: InstrumentState | null;
+  sampler: SamplerState | null;
+  drumKit: DrumKitState | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EffectType = "equalizer" | "reverb" | "delay" | "compressor"
+  | "distortion" | "overdrive" | "fuzz" | "noise-gate"
+  | "chorus" | "flanger" | "phaser" | "limiter";
 
 export type EffectState = {
   id: string;
@@ -104,6 +130,7 @@ export type BusSend = {
 };
 
 export type AudioBus = {
+  nativeEffects?: import("./native-plugins").NativePluginState[];
   id: string;
   name: string;
   level: number;
@@ -155,6 +182,9 @@ export type LoopRange = {
 };
 
 export type Track = {
+  nativeInstrument?: import("./native-plugins").NativePluginState | null;
+  /** Ordered native effects run after the built-in effect chain. */
+  nativeEffects?: import("./native-plugins").NativePluginState[];
   id: string;
   name: string;
   type: TrackType;
@@ -181,6 +211,7 @@ export type SongKey = { root: number; scale: "major" | "naturalMinor" };
 export type MidiViewSettings = { smartView: boolean; scaleSnap: boolean };
 
 export type SongSession = {
+  nativeMasterEffects?: import("./native-plugins").NativePluginState[];
   id: string;
   releaseId: string;
   title: string;
@@ -239,7 +270,7 @@ export type CreateSongInput = {
   title: string;
 };
 
-export type AppBridge = {
+export type AppBridge = import("./native-plugins").NativePluginBridge & {
   saveProjectAs(session: SongSession): Promise<string | null>;
   openProject(): Promise<{ release: Release; session: SongSession } | null>;
   getAppVersion(): Promise<string>;
@@ -265,9 +296,14 @@ export type AppBridge = {
   deleteSong(sessionId: string): Promise<void>;
   reorderSongs(releaseId: string, songIds: string[]): Promise<Release>;
   saveSession(session: SongSession): Promise<SongSession>;
+  storeTempoMedia(media: import("./tempo").TempoMedia[]): Promise<void>;
   listEffectPresets(projectId: string): Promise<EffectChainPreset[]>;
   saveEffectPreset(preset: Omit<EffectChainPreset, "createdAt" | "updatedAt">): Promise<EffectChainPreset>;
   deleteEffectPreset(presetId: string, projectId: string): Promise<void>;
+  listInstrumentPresets(): Promise<InstrumentPreset[]>;
+  saveInstrumentPreset(preset: Omit<InstrumentPreset, "createdAt" | "updatedAt">): Promise<InstrumentPreset>;
+  deleteInstrumentPreset(presetId: string): Promise<void>;
+  getFactoryDrumKit(): Promise<DrumKitState>;
   importEffectPreset(): Promise<EffectChainPresetFile | null>;
   exportEffectPreset(preset: EffectChainPresetFile): Promise<boolean>;
   chooseArtwork(releaseId: string): Promise<Release | null>;

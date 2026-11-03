@@ -1,5 +1,7 @@
 export const STARRY_ID = "theme.starry";
 export const ORIGINAL_ID = "theme.original";
+export const DAY_ID = "theme.day";
+export const BUILT_IN_THEME_IDS: readonly string[] = [ORIGINAL_ID, DAY_ID];
 
 export type ThemeState = {
   claimedThemeIds: string[];
@@ -24,7 +26,7 @@ export const themeProducts: readonly ThemeProduct[] = [{
   id: STARRY_ID,
   name: "Starry",
   category: "Themes",
-  description: "A calm midnight-blue theme with soft blue accents and a subtle starfield.",
+  description: "A midnight-blue theme with the supplied moon, sparse stars, and restrained teal accents.",
   priceType: "free",
   previewAsset: "starry",
   themeId: STARRY_ID,

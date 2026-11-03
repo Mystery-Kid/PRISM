@@ -4,7 +4,7 @@ import { mkdtemp, readFile, writeFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ThemeStore } from "./theme-store";
-import { ORIGINAL_ID, STARRY_ID } from "../shared/themes";
+import { DAY_ID, ORIGINAL_ID, STARRY_ID, themeProducts } from "../shared/themes";
 
 async function fixture(t: { after: (callback: () => Promise<void>) => void }) {
   const directory = await mkdtemp(join(tmpdir(), "prism-theme-"));
@@ -24,6 +24,36 @@ test("offline claims are durable and do not implicitly change the selected theme
   await restarted.initialize();
   assert.deepEqual((await restarted.getState()).claimedThemeIds, [STARRY_ID]);
   assert.equal((await restarted.getState()).selectedThemeId, ORIGINAL_ID);
+});
+
+test("Day is built in, not a Shop product, and works without an entitlement or Starry package", async (t) => {
+  const { store, directory } = await fixture(t);
+  assert.ok((await store.getState()).availableThemeIds.includes(DAY_ID));
+  assert.ok(!themeProducts.some((product) => product.themeId === DAY_ID));
+  await rm(join(directory, "themes", "starry.json"));
+  const state = await store.apply(DAY_ID);
+  assert.equal(state.effectiveThemeId, DAY_ID);
+  assert.equal(state.selectedThemeId, DAY_ID);
+  assert.deepEqual(state.claimedThemeIds, []);
+  assert.deepEqual(state.availableThemeIds, [ORIGINAL_ID, DAY_ID]);
+  await assert.rejects(store.claim(DAY_ID), /not available/);
+  await assert.rejects(store.repair(DAY_ID), /Unknown/);
+  await assert.rejects(store.apply(STARRY_ID), /Claim/);
+  const restarted = new ThemeStore(directory);
+  await restarted.initialize();
+  assert.equal((await restarted.getState()).effectiveThemeId, DAY_ID);
+});
+
+test("rapid built-in and entitled theme requests serialize and preserve final preference", async (t) => {
+  const { store, directory } = await fixture(t);
+  await store.claim(STARRY_ID);
+  const order = [DAY_ID, STARRY_ID, ORIGINAL_ID, DAY_ID, STARRY_ID, DAY_ID];
+  const results = await Promise.all(order.map((id) => store.apply(id)));
+  assert.deepEqual(results.map((state) => state.effectiveThemeId), order);
+  const restarted = new ThemeStore(directory);
+  await restarted.initialize();
+  assert.equal((await restarted.getState()).selectedThemeId, DAY_ID);
+  assert.deepEqual((await restarted.getState()).claimedThemeIds, [STARRY_ID]);
 });
 
 test("claiming concurrently is idempotent and selection survives restart independently", async (t) => {
