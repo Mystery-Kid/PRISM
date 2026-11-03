@@ -114,7 +114,7 @@ let closeApproved = false;
 const activeRecordings = new Map<string, ActiveRecording>();
 
 function emptyLibrary(): ProjectLibrary {
-  return { version: 6, releases: [], sessions: [], assets: [], effectPresets: [], instrumentPresets: [] };
+  return { version: 7, releases: [], sessions: [], assets: [], effectPresets: [], instrumentPresets: [] };
 }
 
 async function persistLibrary(): Promise<void> {

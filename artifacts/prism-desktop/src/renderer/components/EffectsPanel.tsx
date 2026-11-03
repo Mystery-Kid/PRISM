@@ -6,8 +6,10 @@ import {
   Copy,
   Download,
   FileUp,
+  GripVertical,
   Pencil,
   Plus,
+  ArrowRight,
   RotateCcw,
   Save,
   Search,
@@ -31,6 +33,8 @@ import type {
   EffectState,
   SongSession,
 } from "@shared/types";
+import { RotaryControl } from "./RotaryControl";
+import "./pedalboard.css";
 
 type EffectsPanelProps = {
   session: SongSession;
@@ -309,7 +313,7 @@ export function EffectsPanel({
     </section>
 
     <section className="effect-chain-workspace" aria-label="Effect chain editor">
-      <div className="effects-section-title"><strong>Ordered chain</strong>
+      <div className="effects-section-title"><strong>Ordered chain</strong><span className="pedal-signal-label">SIGNAL <ArrowRight size={10} /> OUT</span>
         <label className="effect-target">
           <span>Target</span>
           <select data-testid="select-effect-chain-target" value={activeTarget} onChange={(event) => {
@@ -398,16 +402,75 @@ function EffectChainEditor({ effects, onChange }: {
     [next[index], next[target]] = [next[target]!, next[index]!];
     onChange(next);
   };
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const moveTo = (effectId: string, targetIndex: number) => {
+    const fromIndex = effects.findIndex((effect) => effect.id === effectId);
+    if (fromIndex < 0 || targetIndex < 0 || targetIndex >= effects.length || fromIndex === targetIndex) return;
+    const next = [...effects];
+    const [item] = next.splice(fromIndex, 1);
+    if (!item) return;
+    next.splice(targetIndex, 0, item);
+    onChange(next);
+  };
   const update = (effectId: string, apply: (effect: EffectState) => EffectState) =>
     onChange(effects.map((effect) => effect.id === effectId ? apply(effect) : effect));
 
-  return <div className="effect-chain-list">
+  return <div className="effect-chain-list pedalboard-list" aria-label="Pedalboard, signal flows left to right">
     {effects.map((effect, index) => {
-      const definition = nativeEffectCatalog.find((item) => item.type === effect.type)!;
-      return <article className={`effect-unit ${effect.enabled ? "enabled" : ""}`} data-testid={`effect-unit-${effect.id}`} key={effect.id}>
-        <div className="effect-unit-head">
-          <label><input data-testid={`track-effect-toggle-${effect.id}`} type="checkbox" checked={effect.enabled} onChange={(event) => update(effect.id, (item) => ({ ...item, enabled: event.target.checked }))} />{definition.label}</label>
-          <div className="effect-unit-actions">
+      const definition = nativeEffectCatalog.find((item) => item.type === effect.type);
+      if (!definition) return null;
+      const parameters = normalizeEffectParameters(effect.type, effect.parameters);
+      const primaryParameters = definition.parameters
+        .filter((parameter) => !(parameter as typeof parameter & { advanced?: boolean }).advanced)
+        .slice(0, 3);
+      const expanded = expandedIds.has(effect.id);
+      const shownParameters = expanded ? definition.parameters : primaryParameters;
+      const hiddenCount = definition.parameters.length - primaryParameters.length;
+      const toggleExpanded = () => setExpandedIds((current) => {
+        const next = new Set(current);
+        if (next.has(effect.id)) next.delete(effect.id);
+        else next.add(effect.id);
+        return next;
+      });
+      return <article
+        className={`effect-unit pedal-unit ${effect.enabled ? "enabled" : "bypassed"} ${draggingId === effect.id ? "is-dragging" : ""}`}
+        data-testid={`effect-unit-${effect.id}`}
+        key={effect.id}
+        tabIndex={0}
+        aria-label={`${definition.label}, position ${index + 1} of ${effects.length}. Press Left or Right to move.`}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            move(index, -1);
+          } else if (event.key === "ArrowRight") {
+            event.preventDefault();
+            move(index, 1);
+          }
+        }}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          const draggedId = event.dataTransfer.getData("text/plain") || draggingId;
+          if (draggedId) moveTo(draggedId, index);
+          setDraggingId(null);
+        }}
+      >
+        <div className="effect-unit-head pedal-head">
+          <div className="pedal-heading">
+            <span className="pedal-category">{definition.category}</span>
+            <label className="pedal-bypass">
+              <input data-testid={`track-effect-toggle-${effect.id}`} type="checkbox" checked={effect.enabled} onChange={(event) => update(effect.id, (item) => ({ ...item, enabled: event.target.checked }))} />
+              <span>{definition.label}</span>
+            </label>
+          </div>
+          <div className="effect-unit-actions pedal-actions">
+            <button className="icon-button compact pedal-drag-handle" title={`Drag ${definition.label} to reorder`} aria-label={`Drag ${definition.label} to reorder`} draggable onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", effect.id);
+              setDraggingId(effect.id);
+            }} onDragEnd={() => setDraggingId(null)}><GripVertical size={13} /></button>
             <button className="icon-button compact" title="Move effect up" aria-label={`Move ${definition.label} up`} disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={12} /></button>
             <button className="icon-button compact" title="Move effect down" aria-label={`Move ${definition.label} down`} disabled={index === effects.length - 1} onClick={() => move(index, 1)}><ArrowDown size={12} /></button>
             <button className="icon-button compact" title="Duplicate effect" aria-label={`Duplicate ${definition.label}`} disabled={effects.length >= maxPresetEffectCount} onClick={() => {
@@ -420,37 +483,34 @@ function EffectChainEditor({ effects, onChange }: {
             <button className="icon-button compact danger-hover" title="Remove effect" aria-label={`Remove ${definition.label}`} onClick={() => onChange(effects.filter((item) => item.id !== effect.id))}><X size={12} /></button>
           </div>
         </div>
-        {definition.parameters.map((parameter) => {
-          const value = normalizeEffectParameters(effect.type, effect.parameters)[parameter.key] ?? parameter.defaultValue;
-          return <label className="effect-param" key={parameter.key}>
-            <span>{parameter.label}</span>
-            <input
-              data-testid={`track-effect-${effect.id}-${parameter.key}`}
-              aria-label={`${definition.label} ${parameter.label}`}
-              type="range"
-              min={parameter.min}
-              max={parameter.max}
-              step={parameter.step}
-              value={value}
-              onChange={(event) => update(effect.id, (item) => ({
-                ...item,
-                parameters: normalizeEffectParameters(item.type, {
-                  ...item.parameters,
-                  [parameter.key]: Number(event.target.value),
-                }),
-              }))}
-            />
-            <small>{formatParameter(value, parameter.unit)}</small>
-          </label>;
-        })}
+        <div className="pedal-controls">
+          {shownParameters.map((parameter) => <RotaryControl
+            key={parameter.key}
+            testId={`track-effect-${effect.id}-${parameter.key}`}
+            effectLabel={definition.label}
+            label={parameter.label}
+            unit={parameter.unit}
+            min={parameter.min}
+            max={parameter.max}
+            step={parameter.step}
+            value={parameters[parameter.key] ?? parameter.defaultValue}
+            defaultValue={parameter.defaultValue}
+            onChange={(value) => update(effect.id, (item) => ({
+              ...item,
+              parameters: normalizeEffectParameters(item.type, {
+                ...item.parameters,
+                [parameter.key]: value,
+              }),
+            }))}
+          />)}
+        </div>
+        {hiddenCount > 0 && <button className="pedal-advanced-toggle" aria-expanded={expanded} onClick={toggleExpanded}>
+          {expanded ? "Hide advanced" : `Advanced settings · ${hiddenCount}`}
+        </button>}
+        <div className="pedal-foot"><span>IN</span><i aria-hidden="true" /><span>OUT</span></div>
       </article>;
     })}
   </div>;
-}
-
-function formatParameter(value: number, unit?: string): string {
-  const digits = Math.abs(value) < 1 ? 2 : value % 1 === 0 ? 0 : 1;
-  return `${value.toFixed(digits)}${unit ? ` ${unit}` : ""}`;
 }
 
 function sortPresets(presets: EffectChainPreset[]): EffectChainPreset[] {

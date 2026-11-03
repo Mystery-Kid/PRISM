@@ -40,7 +40,7 @@ const assetStorageNamePattern =
 export type StoredAsset = ProjectAsset & { storageName: string };
 
 export type ProjectLibrary = {
-  version: 6;
+  version: 7;
   releases: Release[];
   sessions: SongSession[];
   assets: StoredAsset[];
@@ -97,7 +97,7 @@ export function migrateProjectLibrary(value: unknown): ProjectLibrary {
   const source = record(value);
   const version = Number(source.version);
   if (
-    ![1, 2, 3, 4, 5, 6].includes(version) ||
+    ![1, 2, 3, 4, 5, 6, 7].includes(version) ||
     !Array.isArray(source.releases) ||
     !Array.isArray(source.sessions) ||
     (source.assets !== undefined && !Array.isArray(source.assets)) ||
@@ -194,7 +194,7 @@ export function migrateProjectLibrary(value: unknown): ProjectLibrary {
   }
   const instrumentPresets = Array.isArray(source.instrumentPresets)
     ? source.instrumentPresets.map(normalizeInstrumentPreset) : [];
-  return { ...source, version: 6, releases, sessions, assets, effectPresets, instrumentPresets } as ProjectLibrary;
+  return { ...source, version: 7, releases, sessions, assets, effectPresets, instrumentPresets } as ProjectLibrary;
 }
 
 function migrateEffects(value: unknown): EffectState[] {
