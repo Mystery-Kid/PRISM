@@ -59,7 +59,8 @@ export async function saveProjectFile(
     media.push({ ...asset, data: (await readFile(file)).toString("base64") });
   }
   const library: ProjectLibrary = {
-    version: 5,
+    version: 6,
+    instrumentPresets: [],
     releases: [release],
     sessions: [structuredClone(session)],
     assets: media.map(({ data: _data, ...asset }) => asset),

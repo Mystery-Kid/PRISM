@@ -3,16 +3,25 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { verifyInstalledEditor } from "./editor-smoke";
 import { captureThemeScreenshot, verifyInitialDay, verifyInstalledThemes } from "./theme-smoke";
+import { verifyInstalledInstruments } from "./instrument-smoke";
 
 /** Opt-in installed-app check. Always uses isolated userData supplied by CI. */
 export async function runDesktopSmoke(window: BrowserWindow, directory: string, reopen: boolean): Promise<void> {
   const themeRestart = process.argv.includes("--prism-theme-reopen");
-  const report = join(directory, themeRestart ? "theme-reopen.json" : reopen ? "reopen.json" : "first-launch.json");
+  const instrumentCreate = process.argv.includes("--prism-instrument-create");
+  const instrumentRestart = process.argv.includes("--prism-instrument-reopen");
+  const report = join(directory, instrumentCreate ? "instruments-create.json" : instrumentRestart ? "instruments-reopen.json" :
+    themeRestart ? "theme-reopen.json" : reopen ? "reopen.json" : "first-launch.json");
   const timer = setTimeout(() => {
     void writeFile(report, JSON.stringify({ ok: false, error: "Installed app check timed out." }))
       .finally(() => app.exit(1));
   }, 100_000);
   try {
+    if (instrumentCreate || instrumentRestart) {
+      const checks = await verifyInstalledInstruments(window, directory, instrumentRestart);
+      await writeFile(report, JSON.stringify({ ok: true, checks }, null, 2));
+      clearTimeout(timer); app.exit(0); return;
+    }
     const result = await window.webContents.executeJavaScript(`(async () => {
       const assert = (condition, message) => { if (!condition) throw new Error(message); };
       const wait = async (predicate, label) => {

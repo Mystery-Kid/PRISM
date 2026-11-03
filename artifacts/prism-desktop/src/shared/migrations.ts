@@ -7,6 +7,7 @@ import type {
   EffectState,
   InstrumentRecoveryState,
   InstrumentState,
+  InstrumentPreset,
   JsonValue,
   MidiNote,
   MidiClip,
@@ -27,6 +28,8 @@ import {
 } from "./instrument-tracks";
 import { normalizeStoredEffectPreset } from "./effect-presets";
 import { isSongKey } from "./scales";
+import { instrumentIsAvailable } from "./instrument-library";
+import { normalizeInstrumentPreset } from "./instrument-presets";
 
 const waveforms = new Set(["sine", "square", "sawtooth", "triangle"]);
 const trackColors = ["#f47b54", "#72c4be", "#b295e8", "#e4b85e", "#7c9ef2"];
@@ -37,11 +40,12 @@ const assetStorageNamePattern =
 export type StoredAsset = ProjectAsset & { storageName: string };
 
 export type ProjectLibrary = {
-  version: 5;
+  version: 6;
   releases: Release[];
   sessions: SongSession[];
   assets: StoredAsset[];
   effectPresets: EffectChainPreset[];
+  instrumentPresets: InstrumentPreset[];
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -93,7 +97,7 @@ export function migrateProjectLibrary(value: unknown): ProjectLibrary {
   const source = record(value);
   const version = Number(source.version);
   if (
-    ![1, 2, 3, 4, 5].includes(version) ||
+    ![1, 2, 3, 4, 5, 6].includes(version) ||
     !Array.isArray(source.releases) ||
     !Array.isArray(source.sessions) ||
     (source.assets !== undefined && !Array.isArray(source.assets)) ||
@@ -185,7 +189,12 @@ export function migrateProjectLibrary(value: unknown): ProjectLibrary {
   const effectPresets = Array.isArray(source.effectPresets)
     ? source.effectPresets.map(normalizeStoredEffectPreset)
     : [];
-  return { ...source, version: 5, releases, sessions, assets, effectPresets } as ProjectLibrary;
+  if (source.instrumentPresets !== undefined && !Array.isArray(source.instrumentPresets)) {
+    throw new Error("The PRISM instrument-preset library is damaged; the project file was not changed.");
+  }
+  const instrumentPresets = Array.isArray(source.instrumentPresets)
+    ? source.instrumentPresets.map(normalizeInstrumentPreset) : [];
+  return { ...source, version: 6, releases, sessions, assets, effectPresets, instrumentPresets } as ProjectLibrary;
 }
 
 function migrateEffects(value: unknown): EffectState[] {
@@ -292,6 +301,10 @@ function migrateInstrument(value: unknown): InstrumentState {
     ? instrument.waveform as OscillatorType
     : "sawtooth";
   return {
+    ...instrument,
+    ...(typeof instrument.instrumentId === "string" ? { instrumentId: instrument.instrumentId } : {}),
+    ...(instrument.parameters !== undefined ? { parameters: Object.fromEntries(Object.entries(record(instrument.parameters))
+      .filter(([, value]) => typeof value === "number" && Number.isFinite(value))) as Record<string, number> } : {}),
     waveform,
     attack: Math.min(4, Math.max(0.001, finite(instrument.attack, 0.01))),
     decay: Math.min(4, Math.max(0.001, finite(instrument.decay, 0.12))),
@@ -346,6 +359,9 @@ function unsupportedTrackData(track: Record<string, unknown>): JsonValue | null 
 function instrumentStateIsSupported(value: unknown): boolean {
   const instrument = record(value);
   return waveforms.has(String(instrument.waveform)) &&
+    instrumentIsAvailable(instrument as InstrumentState) &&
+    (instrument.parameters === undefined || (typeof instrument.parameters === "object" && instrument.parameters !== null &&
+      !Array.isArray(instrument.parameters) && Object.values(instrument.parameters).every((value) => typeof value === "number" && Number.isFinite(value)))) &&
     ["attack", "decay", "sustain", "release"].every((key) =>
       instrument[key] === undefined ||
       (typeof instrument[key] === "number" && Number.isFinite(instrument[key])),
@@ -355,6 +371,7 @@ function instrumentStateIsSupported(value: unknown): boolean {
 function migrateSampler(value: unknown): SamplerState {
   const sampler = record(value);
   return {
+    ...sampler,
     sampleAssetId: typeof sampler.sampleAssetId === "string" && sampler.sampleAssetId.trim()
       ? sampler.sampleAssetId
       : null,
@@ -367,6 +384,7 @@ function migrateDrumKit(value: unknown): DrumKitState {
   const kit = record(value);
   if (!Array.isArray(kit.pads)) return createDefaultDrumKit();
   return {
+    ...kit,
     patternLengthBars: Math.max(1, Math.min(8, Math.round(finite(kit.patternLengthBars, 1)))),
     patternStartBeat: Math.max(0, Math.min(100_000, finite(kit.patternStartBeat, 0))),
     pads: kit.pads.slice(0, 16).map((item, index) => {
@@ -424,7 +442,9 @@ function migrateTrack(value: unknown, index: number): Track {
     instrumentRecovery = {
       originalType: type,
       rawState: serializeRecoveryState(track.instrument),
-      message: "Some saved synth settings are unsupported. MIDI notes were kept and safe synth defaults were restored.",
+      message: typeof record(track.instrument).instrumentId === "string"
+        ? `The saved instrument "${record(track.instrument).instrumentId}" is unavailable. Its raw settings and MIDI were kept; select a supported replacement.`
+        : "Some saved synth settings are unsupported. MIDI notes and raw settings were kept and safe synth defaults were restored.",
     };
   } else if (!instrumentRecovery && type === "sampler" && !isSamplerState(track.sampler)) {
     instrumentRecovery = {

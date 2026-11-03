@@ -7,7 +7,6 @@ import {
 import type {
   AudioClip,
   DrumPadState,
-  InstrumentState,
   MidiClip,
   MidiNote,
   ProjectAsset,
@@ -44,6 +43,7 @@ import { EffectsPanel } from "./EffectsPanel";
 import { RoutingPanel } from "./RoutingPanel";
 import { SamplerPanel } from "./SamplerPanel";
 import { DrumPanel } from "./DrumPanel";
+import { InstrumentBrowser } from "./InstrumentBrowser";
 import { PianoRollSurface } from "./PianoRollSurface";
 import { SongKeyControls, SONG_KEY_ROOT_NAMES as rootNames } from "./SongKeyControls";
 import { ShortcutsDialog } from "./ShortcutsDialog";
@@ -457,24 +457,6 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       ...track, notes: track.notes.map((note) => note.id === noteId ? { ...note, ...update } : note),
     } : track),
   }));
-  const updateInstrumentParameter = (
-    parameter: Exclude<keyof InstrumentState, "waveform">,
-    value: number,
-  ) => {
-    if (!selectedInstrument?.instrument) return;
-    const bounds = {
-      attack: [0.001, 4],
-      decay: [0.001, 4],
-      sustain: [0, 1],
-      release: [0.005, 4],
-    }[parameter];
-    updateTrack(selectedInstrument.id, {
-      instrument: {
-        ...selectedInstrument.instrument,
-        [parameter]: clamp(value, bounds[0], bounds[1]),
-      },
-    });
-  };
   const safe = async (task: () => Promise<void>) => {
     setEngineError("");
     try { await task(); } catch (cause) {
@@ -1795,6 +1777,12 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     {inspectorVisible ? <section className={`workstation-bottom ${panel === "effects" ? "effects-open" : ""} ${panel === "routing" ? "routing-open" : ""} ${panel === "sampler" ? "sampler-open" : ""} ${panel === "drums" ? "drums-open" : ""}`} style={{ flexBasis: `${dockHeight}px` }} onPointerDown={() => setActiveEditor(activeShortcutContext(panel))}>
       <nav className="lower-panel-tabs" aria-label="Workstation panels">
         {(["mixer", "clip", "piano", "sampler", "drums", "effects", "routing", "devices"] as const).map((tab) => <button key={tab} className={`lower-tab ${panel === tab ? "active" : ""}`} data-testid={`tab-${tab}`} onClick={() => { if (tab === "effects") setSelectedEffectBusId(""); setPanel(tab); setActiveEditor(activeShortcutContext(tab)); }}>{tab === "mixer" ? <SlidersHorizontal size={13} /> : tab === "clip" ? <AudioLines size={13} /> : tab === "piano" || tab === "drums" ? <Music2 size={13} /> : tab === "sampler" || tab === "routing" ? <AudioLines size={13} /> : tab === "effects" ? <Sparkles size={13} /> : <Headphones size={13} />}{tab === "clip" ? "Clip" : tab === "devices" ? "I/O" : tab[0].toUpperCase() + tab.slice(1)}</button>)}
+        <InstrumentBrowser
+          track={selectedPatternTrack}
+          onChange={updateTrack}
+          onPreview={previewSampleNote}
+          onAssetsChanged={() => window.prism.listAudioAssets().then((assets) => setAudioAssets(assets))}
+        />
       </nav>
       {panel === "mixer" && <div className="mixer-channels">
         {session.tracks.map((track) => <div className="mixer-channel" key={track.id}>
@@ -1854,13 +1842,6 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
             {rootNames[songKey.root]} {songKey.scale === "major" ? "Major" : "Natural minor"} · {allowedPitchClasses(songKey).map((pitch) => rootNames[pitch]).join(" ")}
           </span>}
           {smartView && !songKey && <span className="song-key-prompt" data-testid="text-song-key-prompt">Choose a Song Key to show scale guides.</span>}
-          {selectedInstrument && <>
-            <label>Instrument<select data-testid="select-oscillator" value={selectedInstrument.instrument?.waveform ?? "triangle"} onChange={(event) => selectedInstrument.instrument && updateTrack(selectedInstrument.id, { instrument: { ...selectedInstrument.instrument, waveform: event.target.value as OscillatorType } })}>{["sine", "triangle", "square", "sawtooth"].map((wave) => <option key={wave}>{wave}</option>)}</select></label>
-            <label>Attack<input data-testid="input-instrument-attack" type="number" min="0.001" max="4" step="0.001" value={selectedInstrument.instrument?.attack ?? 0.01} onChange={(event) => updateInstrumentParameter("attack", Number(event.target.value))} /></label>
-            <label>Decay<input data-testid="input-instrument-decay" type="number" min="0.001" max="4" step="0.001" value={selectedInstrument.instrument?.decay ?? 0.12} onChange={(event) => updateInstrumentParameter("decay", Number(event.target.value))} /></label>
-            <label>Sustain<input data-testid="input-instrument-sustain" type="number" min="0" max="1" step="0.01" value={selectedInstrument.instrument?.sustain ?? 0.65} onChange={(event) => updateInstrumentParameter("sustain", Number(event.target.value))} /></label>
-            <label>Release<input data-testid="input-instrument-release" type="number" min="0.005" max="4" step="0.005" value={selectedInstrument.instrument?.release ?? 0.18} onChange={(event) => updateInstrumentParameter("release", Number(event.target.value))} /></label>
-          </>}
           {!selectedInstrument && <span className="pattern-track-label" data-testid="text-pattern-track">
             {selectedPatternTrack ? `MIDI · ${selectedPatternTrack.name}` : "Select a MIDI track"}
           </span>}

@@ -40,6 +40,7 @@ jobs:
         run: |
           pnpm --filter @workspace/prism-desktop run test:projects
           pnpm --filter @workspace/prism-desktop run test:arrangement
+          pnpm --filter @workspace/prism-desktop run test:instruments
 
       - name: Check audio rendering, effects, and transport
         shell: pwsh

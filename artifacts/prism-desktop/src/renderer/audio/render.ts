@@ -11,6 +11,8 @@ import { beatToSeconds } from "./time";
 import { encodeAudioBufferWav } from "./wav";
 import { getClipWindow, getSessionDuration } from "./timeline";
 import { createMidiEnvelopePlan, midiPitchToFrequency } from "./midi";
+import { instrumentIsAvailable, getInstrumentId } from "@shared/instrument-library";
+import { instrumentReleaseTail, scheduleInstrumentVoice } from "./instrument-voice";
 
 const exportSampleRate = 48_000;
 const maximumExportSeconds = 10 * 60;
@@ -26,6 +28,11 @@ export async function renderSessionWav(
   }
   if (session.tracks.some((track) => track.type === "unsupported" && track.notes.length > 0)) {
     throw new Error("A MIDI track uses an unsupported instrument type. Its notes were kept; recover the track before exporting.");
+  }
+  for (const track of session.tracks) {
+    if (track.type === "instrument" && track.notes.length && !instrumentIsAvailable(track.instrument)) {
+      throw new Error(`Instrument "${getInstrumentId(track.instrument)}" is unavailable. MIDI and settings were kept; choose a replacement before export.`);
+    }
   }
   const sampleEvents = session.tracks.flatMap((track) =>
     track.notes.flatMap((note) => {
@@ -56,6 +63,11 @@ export async function renderSessionWav(
     }
   }));
   let sampleEnd = duration;
+  for (const track of session.tracks) {
+    if (track.type === "instrument") for (const note of track.notes) {
+      sampleEnd = Math.max(sampleEnd, beatToSeconds(note.startBeat + note.durationBeats, session.tempo, session.timeSignature) + instrumentReleaseTail(track.instrument));
+    }
+  }
   for (const { note, trigger } of sampleEvents) {
     const buffer = audio.get(trigger.assetId);
     if (!buffer) continue;
@@ -173,23 +185,7 @@ function scheduleOfflineNote(
     session.timeSignature,
   );
   if (end <= start) return;
-  const oscillator = context.createOscillator();
-  const envelope = context.createGain();
-  oscillator.type = track.instrument.waveform;
-  oscillator.frequency.value = midiPitchToFrequency(note.pitch);
-  const envelopePlan = createMidiEnvelopePlan(note, track.instrument, end - start);
-  envelope.gain.setValueAtTime(envelopePlan.initialValue, start);
-  for (const event of envelopePlan.events) {
-    if (event.curve === "set") {
-      envelope.gain.setValueAtTime(event.value, start + event.timeSeconds);
-    } else {
-      envelope.gain.linearRampToValueAtTime(event.value, start + event.timeSeconds);
-    }
-  }
-  oscillator.connect(envelope);
-  envelope.connect(destination);
-  oscillator.start(start);
-  oscillator.stop(end + 0.01);
+  scheduleInstrumentVoice(context, destination, track.instrument, note, { when: start, duration: end - start });
 }
 
 function scheduleOfflineSample(
