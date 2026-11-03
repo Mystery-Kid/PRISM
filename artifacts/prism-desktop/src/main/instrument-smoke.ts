@@ -155,6 +155,8 @@ export async function verifyInstalledInstruments(window: BrowserWindow, director
   await selectTrack(ids["Native Missing Recovery"]);
   if (!reopen) {
     await evaluate(`assert($('instrument-browser').textContent.includes('Missing instrument'),'Missing instrument was advertised as available');
+      input('input-instrument-preset-name','A missing sound must not save');
+      await pause(60);
       assert($('button-instrument-preview').disabled&&$('button-instrument-preset-save').disabled,'Missing instrument has misleading active controls');`);
     await choose("prism.synth.analog.v1");
   }
