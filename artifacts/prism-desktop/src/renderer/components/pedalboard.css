@@ -1,6 +1,18 @@
 .effects-workspace:has(.pedalboard-list) {
   grid-template-columns: 180px minmax(0, 1fr) 260px;
 }
+.effects-workspace:has(.pedalboard-list) .effect-browser-card {
+  flex-shrink: 0;
+  align-items: flex-start;
+}
+.effects-workspace:has(.pedalboard-list) .effect-browser-card > div {
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr);
+}
+.effects-workspace:has(.pedalboard-list) .effect-browser-card strong {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .effect-chain-workspace {
   --pedal-bg: var(--theme-panel, #191c20);
   --pedal-raised: var(--theme-panel-raised, #22262b);
