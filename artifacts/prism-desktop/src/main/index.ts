@@ -35,6 +35,8 @@ import {
 } from "../shared/migrations";
 import { createLibraryBackup, restoreLibraryBackup } from "./project-backup";
 import { writeAtomicText } from "./atomic-write";
+import { NativePluginHost } from "./native-plugins";
+import { validateNativeSession } from "../shared/native-plugins";
 import { ThemeStore } from "./theme-store";
 import { importProjectFile, saveProjectFile } from "./project-file";
 import { runDesktopSmoke } from "./desktop-smoke";
@@ -115,7 +117,7 @@ let closeApproved = false;
 const activeRecordings = new Map<string, ActiveRecording>();
 
 function emptyLibrary(): ProjectLibrary {
-  return { version: 8, releases: [], sessions: [], assets: [], effectPresets: [], instrumentPresets: [] };
+  return { version: 9, releases: [], sessions: [], assets: [], effectPresets: [], instrumentPresets: [] };
 }
 
 async function persistLibrary(): Promise<void> {
@@ -448,6 +450,12 @@ function allowedSender(senderId: number): void {
 let themeStore: ThemeStore;
 
 function registerIpcHandlers(): void {
+  const nativePlugins = new NativePluginHost(app.getPath("userData"),
+    app.isPackaged ? join(process.resourcesPath, "native", "prism-vst-host.exe")
+      : join(__dirname, "../../../../generated-artifacts/prism-native-build/Release/prism-vst-host.exe"),
+    () => mainWindow, smokeDirectory && process.argv.some(arg => arg.startsWith("--prism-native-source="))
+      ? { source: process.argv.find(arg => arg.startsWith("--prism-native-source="))!.slice("--prism-native-source=".length), editorCloseAfter: 500 }
+      : undefined);
   let factoryDrums: ReturnType<typeof installFactoryDrums> | null = null;
   const handle = (
     channel: string,
@@ -459,6 +467,14 @@ function registerIpcHandlers(): void {
     });
   };
 
+  handle("prism:native:status", () => nativePlugins.status());
+  handle("prism:native:add-folder", () => nativePlugins.addFolder());
+  handle("prism:native:scan", () => nativePlugins.scan());
+  handle("prism:native:inspect", (_event, classId) => nativePlugins.inspect(classId));
+  handle("prism:native:process", (_event, input) => nativePlugins.process(input));
+  handle("prism:native:edit", (_event, plugin) => nativePlugins.edit(plugin));
+  handle("prism:native:cancel", () => nativePlugins.cancel());
+  app.on("before-quit", () => nativePlugins.cancel(true));
   handle("prism:themes:get", () => themeStore.getState());
   handle("prism:instruments:presets:list", () => structuredClone(getLibrary().instrumentPresets));
   handle("prism:instruments:drums", () => {
@@ -688,6 +704,9 @@ function registerIpcHandlers(): void {
   );
   handle("prism:sessions:save", async (_event, updated: SongSession) => {
     const current = getSession(updated.id);
+    validateNativeSession(updated);
+    if (current.nativeMasterEffects?.length && updated.nativeMasterEffects === undefined)
+      throw new Error("Saved native master FX are missing; the project was not changed.");
     if (updated.songKey !== undefined && updated.songKey !== null && !isSongKey(updated.songKey)) {
       throw new Error("The Song Key must have a supported root and scale.");
     }
@@ -730,6 +749,9 @@ function registerIpcHandlers(): void {
     }));
     for (const track of updated.tracks) {
       const previous = current.tracks.find((entry) => entry.id === track.id);
+      if ((previous?.nativeEffects?.length && track.nativeEffects === undefined) ||
+        (previous?.nativeInstrument && track.nativeInstrument === undefined))
+        throw new Error(`Saved VST3 assignments for "${track.name}" are incomplete.`);
       if (
         (track.outputBusId === undefined && previous?.outputBusId) ||
         (track.sends === undefined && previous?.sends.length)
@@ -739,6 +761,8 @@ function registerIpcHandlers(): void {
     }
     for (const bus of updated.buses ?? []) {
       const previous = current.buses.find((entry) => entry.id === bus.id);
+      if (previous?.nativeEffects?.length && bus.nativeEffects === undefined)
+        throw new Error(`Saved VST3 bus FX for "${bus.name}" are missing.`);
       if (
         (bus.outputBusId === undefined && previous?.outputBusId) ||
         (bus.sends === undefined && previous?.sends.length)
@@ -1379,7 +1403,9 @@ function createWindow(): void {
   if (process.env.ELECTRON_RENDERER_URL) {
     void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    void mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+    void mainWindow.loadFile(join(__dirname, "../renderer/index.html"),
+      smokeDirectory && (process.argv.includes("--prism-native-create") || process.argv.includes("--prism-native-reopen"))
+        ? { query: { nativeSmoke: "1" } } : {});
   }
 }
 

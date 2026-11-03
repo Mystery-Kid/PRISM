@@ -1,0 +1,149 @@
+.native-manager {
+  --native-ink: var(--text-primary, #e5e8e4);
+  --native-muted: var(--text-secondary, #9ba59f);
+  --native-line: var(--border, rgba(210, 222, 214, .13));
+  --native-surface: var(--surface-raised, rgba(227, 237, 229, .035));
+  --native-accent: var(--accent, #9bc9b9);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 22px 24px;
+  color: var(--native-ink);
+  font-size: 12px;
+}
+.native-manager * { box-sizing: border-box; }
+.native-manager-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--native-line); }
+.native-manager-header h2 { margin: 4px 0 5px; font-size: 21px; letter-spacing: -.035em; font-weight: 650; }
+.native-manager-header p { margin: 0; color: var(--native-muted); font-size: 12px; }
+.native-eyebrow { display: block; color: var(--native-accent); font-size: 9px; letter-spacing: .16em; font-weight: 750; }
+.native-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.native-button, .native-quiet-button, .native-icon-button, .native-cancel, .native-assign, .native-slot-replace {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid var(--native-line); border-radius: 5px; color: var(--native-ink);
+  background: var(--native-surface); font: inherit; cursor: pointer; transition: background .16s ease, border-color .16s ease, opacity .16s ease;
+}
+.native-button { min-height: 31px; padding: 0 10px; font-size: 11px; }
+.native-button:hover, .native-quiet-button:hover, .native-icon-button:hover, .native-slot-replace:hover { border-color: color-mix(in srgb, var(--native-accent) 55%, transparent); background: color-mix(in srgb, var(--native-accent) 10%, transparent); }
+.native-button-primary { border-color: color-mix(in srgb, var(--native-accent) 36%, transparent); color: var(--native-accent); }
+.native-manager button:disabled { opacity: .42; cursor: not-allowed; }
+.native-host-status { display: flex; align-items: center; gap: 9px; margin: 14px 0 8px; color: var(--native-muted); }
+.native-host-status strong { color: var(--native-ink); font-weight: 620; white-space: nowrap; }
+.native-status-dot { width: 7px; height: 7px; border-radius: 50%; background: #cf8f77; flex: none; }
+.native-status-dot.online { background: #8fc6a5; box-shadow: 0 0 0 3px rgba(143, 198, 165, .1); }
+.native-host-status > span:nth-of-type(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.native-cancel { margin-left: auto; min-height: 27px; padding: 0 9px; color: #d4a99b; background: transparent; font-size: 10px; white-space: nowrap; }
+.native-progress { display: flex; align-items: center; gap: 10px; color: var(--native-muted); font-size: 10px; padding: 5px 0 9px; }
+.native-progress-track { width: min(220px, 30vw); height: 4px; overflow: hidden; border-radius: 5px; background: rgba(220, 230, 224, .11); }
+.native-progress-track span { display: block; height: 100%; background: var(--native-accent); transition: width .2s ease; }
+.native-live-status { display: flex; align-items: center; gap: 7px; padding: 7px 0; color: var(--native-accent); }
+.native-spin { animation: native-rotate 1.3s linear infinite; }
+@keyframes native-rotate { to { transform: rotate(360deg); } }
+.native-message { display: flex; align-items: flex-start; gap: 8px; padding: 9px 10px; margin: 8px 0; border: 1px solid var(--native-line); border-radius: 5px; }
+.native-message.error { color: #dfaa9b; background: rgba(173, 85, 63, .11); border-color: rgba(206, 122, 98, .27); }
+.native-message.success { color: #a8cfb7; background: rgba(79, 137, 102, .1); border-color: rgba(117, 177, 138, .2); }
+.native-message button { margin-left: auto; border: 0; color: inherit; background: none; cursor: pointer; }
+.native-buffering-warning { display: flex; gap: 11px; align-items: flex-start; padding: 10px 13px; margin: 12px 0 16px; border-left: 2px solid #d2a774; background: rgba(207, 158, 100, .085); color: #d7b88e; }
+.native-buffering-warning > svg { flex: none; margin-top: 1px; }
+.native-buffering-warning div { display: grid; gap: 3px; }
+.native-buffering-warning strong { color: #e0c39b; font-size: 11px; }
+.native-buffering-warning span { color: var(--native-muted); line-height: 1.45; }
+.native-manager-grid { display: grid; grid-template-columns: minmax(270px, .88fr) minmax(360px, 1.12fr); gap: 14px; align-items: start; }
+.native-library, .native-assignments { min-width: 0; border: 1px solid var(--native-line); background: var(--native-surface); }
+.native-section-heading { display: flex; justify-content: space-between; align-items: center; padding: 13px 14px 11px; border-bottom: 1px solid var(--native-line); }
+.native-section-heading h3 { margin: 4px 0 0; font-size: 14px; font-weight: 630; letter-spacing: -.02em; }
+.native-count { display: grid; place-items: center; min-width: 23px; height: 22px; padding: 0 6px; border: 1px solid var(--native-line); border-radius: 3px; color: var(--native-muted); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.native-filters { padding: 10px 12px; display: grid; gap: 8px; border-bottom: 1px solid var(--native-line); }
+.native-kind-switch { display: flex; gap: 4px; padding: 3px; background: rgba(0, 0, 0, .1); border-radius: 4px; }
+.native-kind-switch button { flex: 1; border: 0; border-radius: 3px; padding: 6px 7px; color: var(--native-muted); background: transparent; font: inherit; font-size: 10px; cursor: pointer; }
+.native-kind-switch button[aria-selected="true"] { color: var(--native-ink); background: rgba(204, 220, 210, .105); }
+.native-search { display: flex; gap: 7px; align-items: center; padding: 0 9px; min-height: 31px; border: 1px solid var(--native-line); border-radius: 4px; color: var(--native-muted); }
+.native-search input { min-width: 0; flex: 1; border: 0; outline: 0; color: var(--native-ink); background: transparent; font: inherit; font-size: 10px; }
+.native-search input::placeholder { color: var(--native-muted); opacity: .75; }
+.native-folder-list, .native-empty-folder { display: grid; gap: 5px; padding: 10px 13px; border-bottom: 1px solid var(--native-line); }
+.native-folder-list > span { color: var(--native-muted); font-size: 9px; text-transform: uppercase; letter-spacing: .09em; }
+.native-folder-list code { overflow-wrap: anywhere; color: var(--native-ink); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.native-empty-folder { grid-template-columns: 19px 1fr; align-items: center; color: var(--native-muted); }
+.native-empty-folder svg { color: var(--native-accent); }
+.native-empty-folder small { grid-column: 2; line-height: 1.4; }
+.native-unavailable-reason, .native-scan-error { display: flex; align-items: flex-start; gap: 7px; margin: 8px 12px; padding: 8px; border: 1px solid rgba(204, 153, 105, .2); background: rgba(206, 157, 96, .07); color: #d4b38d; line-height: 1.35; }
+.native-scan-error { color: #d9a596; border-color: rgba(205, 117, 95, .2); background: rgba(205, 117, 95, .07); }
+.native-unavailable-reason svg, .native-scan-error svg { flex: none; }
+.native-class-list { max-height: 300px; overflow: auto; }
+.native-class-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 9px 12px; border-bottom: 1px solid var(--native-line); }
+.native-plugin-mark { display: inline-flex; justify-content: center; align-items: center; height: 20px; padding: 0 5px; border: 1px solid rgba(143, 190, 169, .22); border-radius: 3px; color: #a4c9b6; background: rgba(110, 157, 133, .08); font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .04em; white-space: nowrap; }
+.native-plugin-mark.instrument { color: #c3adce; border-color: rgba(179, 148, 194, .22); background: rgba(161, 124, 178, .08); }
+.native-class-info, .native-plugin-identity { display: grid; min-width: 0; gap: 3px; }
+.native-class-info strong, .native-plugin-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 620; }
+.native-class-info span, .native-plugin-identity span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--native-muted); font-size: 10px; }
+.native-assign { padding: 5px 9px; border-color: rgba(144, 193, 170, .28); color: var(--native-accent); font-size: 10px; }
+.native-replace-hint { grid-column: 2 / -1; color: #d6b184; font-size: 9px; }
+.native-empty-library { min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 18px; text-align: center; color: var(--native-muted); }
+.native-empty-library svg { color: var(--native-accent); }
+.native-empty-library strong { color: var(--native-ink); font-size: 11px; }
+.native-empty-library span { max-width: 260px; font-size: 10px; line-height: 1.45; }
+.native-library-skeleton { display: grid; gap: 1px; padding: 8px 12px; }
+.native-library-skeleton i { display: block; height: 36px; background: linear-gradient(90deg, transparent, rgba(220, 230, 224, .06), transparent); animation: native-shimmer 1.6s ease-in-out infinite; }
+@keyframes native-shimmer { 50% { opacity: .45; } }
+.native-assignment-tools { display: flex; gap: 14px; align-items: end; justify-content: space-between; padding: 10px 13px; border-bottom: 1px solid var(--native-line); }
+.native-assignment-tools label { display: grid; gap: 4px; min-width: 180px; color: var(--native-muted); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+.native-assignment-tools select { max-width: 250px; min-height: 28px; padding: 0 7px; border: 1px solid var(--native-line); border-radius: 3px; color: var(--native-ink); background: #202623; font: inherit; text-transform: none; letter-spacing: normal; }
+.native-assignment-tools > span { color: var(--native-muted); font-size: 9px; text-align: right; }
+.native-assignment-group { padding: 11px 13px; border-bottom: 1px solid var(--native-line); }
+.native-subheading { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 8px; }
+.native-subheading strong { font-size: 11px; font-weight: 620; }
+.native-subheading span { color: var(--native-muted); font-size: 9px; }
+.native-assignment-empty { padding: 11px 10px; border: 1px dashed var(--native-line); color: var(--native-muted); font-size: 10px; line-height: 1.45; }
+.native-assignment-empty.compact { padding: 8px 9px; font-size: 9px; }
+.native-plugin-card { min-width: 0; padding: 9px 10px; border: 1px solid var(--native-line); background: rgba(0, 0, 0, .08); }
+.native-plugin-card.is-unavailable { border-color: rgba(212, 157, 107, .25); }
+.native-plugin-card-head { display: flex; align-items: center; gap: 9px; }
+.native-plugin-identity { flex: 1; }
+.native-plugin-identity strong { font-size: 11px; }
+.native-power { display: grid; place-items: center; width: 27px; height: 25px; border: 1px solid var(--native-line); border-radius: 3px; color: var(--native-muted); background: transparent; cursor: pointer; }
+.native-power.enabled { color: #a3cbb2; border-color: rgba(141, 192, 163, .27); }
+.native-unavailable { display: flex; gap: 7px; margin-top: 8px; padding: 7px; color: #d7ad81; background: rgba(211, 155, 92, .08); font-size: 9px; line-height: 1.4; }
+.native-unavailable svg { flex: none; }
+.native-plugin-actions { display: flex; align-items: center; gap: 5px; margin-top: 8px; }
+.native-quiet-button { min-height: 26px; padding: 0 7px; font-size: 9px; }
+.native-icon-button { width: 26px; height: 26px; padding: 0; }
+.native-icon-button:first-of-type { margin-left: auto; }
+.native-remove, .native-remove-text { color: #d6a195; }
+.native-parameters { display: grid; gap: 7px; padding-top: 10px; margin-top: 9px; border-top: 1px solid var(--native-line); }
+.native-parameter { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(80px, 1.3fr) 42px; gap: 10px; align-items: center; }
+.native-parameter > span { display: grid; gap: 2px; min-width: 0; }
+.native-parameter b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 560; }
+.native-parameter small { color: var(--native-muted); font-size: 8px; }
+.native-parameter input { width: 100%; accent-color: var(--native-accent); }
+.native-parameter output { color: var(--native-muted); font: 9px ui-monospace, SFMono-Regular, Consolas, monospace; text-align: right; }
+.native-parameter-empty, .native-state-note { color: var(--native-muted); font-size: 9px; line-height: 1.45; }
+.native-state-note { margin: 0; }
+.native-inline-error { color: #d9a596; font-size: 9px; }
+.native-assignment-controls { display: flex; gap: 6px; margin-top: 7px; }
+.native-effect-groups { display: grid; gap: 14px; }
+.native-effect-owner { display: grid; gap: 6px; }
+.native-effect-slot { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: start; gap: 6px; }
+.native-slot-index { padding-top: 13px; color: var(--native-muted); font: 9px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.native-slot-replace { padding: 5px 6px; margin-top: 3px; font-size: 9px; }
+.native-state-footnote { display: flex; align-items: flex-start; gap: 6px; padding: 10px 13px; color: var(--native-muted); font-size: 9px; line-height: 1.4; }
+.native-state-footnote svg { flex: none; }
+.native-recovery-summary { display: grid; gap: 4px; margin-top: 13px; padding: 10px 13px; border: 1px solid var(--native-line); color: var(--native-muted); font-size: 10px; }
+.native-recovery-summary strong { color: var(--native-ink); font-size: 10px; }
+.native-recovery-summary ul { display: grid; gap: 4px; padding: 0; margin: 6px 0 0; list-style: none; }
+.native-recovery-summary li { display: flex; align-items: center; gap: 6px; color: #d5ad82; }
+@media (max-width: 900px) {
+  .native-manager { padding: 14px; }
+  .native-manager-header { display: grid; }
+  .native-header-actions { justify-content: flex-start; }
+  .native-manager-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .native-host-status { align-items: flex-start; flex-wrap: wrap; }
+  .native-host-status > span:nth-of-type(2) { white-space: normal; flex-basis: 100%; padding-left: 16px; }
+  .native-cancel { margin-left: 16px; }
+  .native-assignment-tools { align-items: stretch; flex-direction: column; }
+  .native-assignment-tools > span { text-align: left; }
+  .native-effect-slot { grid-template-columns: 18px minmax(0, 1fr); }
+  .native-slot-replace { grid-column: 2; justify-self: start; margin-top: 0; }
+  .native-parameter { grid-template-columns: minmax(90px, .8fr) minmax(70px, 1fr) 38px; gap: 6px; }
+}

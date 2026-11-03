@@ -6,9 +6,11 @@ import { captureThemeScreenshot, verifyInitialDay, verifyInstalledThemes } from 
 import { verifyInstalledInstruments } from "./instrument-smoke";
 import { verifyInstalledPedals } from "./pedalboard-smoke";
 import { verifyInstalledTempo } from "./tempo-smoke";
+import { verifyInstalledNative } from "./native-smoke";
 
 /** Opt-in installed-app check. Always uses isolated userData supplied by CI. */
 export async function runDesktopSmoke(window: BrowserWindow, directory: string, reopen: boolean): Promise<void> {
+  const nativeCreate = process.argv.includes("--prism-native-create"), nativeRestart = process.argv.includes("--prism-native-reopen");
   const themeRestart = process.argv.includes("--prism-theme-reopen");
   const instrumentCreate = process.argv.includes("--prism-instrument-create");
   const instrumentRestart = process.argv.includes("--prism-instrument-reopen");
@@ -16,13 +18,18 @@ export async function runDesktopSmoke(window: BrowserWindow, directory: string, 
   const pedalRestart = process.argv.includes("--prism-pedal-reopen");
   const tempoCreate = process.argv.includes("--prism-tempo-create");
   const tempoRestart = process.argv.includes("--prism-tempo-reopen");
-  const report = join(directory, tempoCreate ? "tempo-create.json" : tempoRestart ? "tempo-reopen.json" : pedalCreate ? "pedals-create.json" : pedalRestart ? "pedals-reopen.json" : instrumentCreate ? "instruments-create.json" : instrumentRestart ? "instruments-reopen.json" :
+  const report = join(directory, nativeCreate ? "native-create.json" : nativeRestart ? "native-reopen.json" : tempoCreate ? "tempo-create.json" : tempoRestart ? "tempo-reopen.json" : pedalCreate ? "pedals-create.json" : pedalRestart ? "pedals-reopen.json" : instrumentCreate ? "instruments-create.json" : instrumentRestart ? "instruments-reopen.json" :
     themeRestart ? "theme-reopen.json" : reopen ? "reopen.json" : "first-launch.json");
   const timer = setTimeout(() => {
     void writeFile(report, JSON.stringify({ ok: false, error: "Installed app check timed out." }))
       .finally(() => app.exit(1));
   }, 100_000);
   try {
+    if (nativeCreate || nativeRestart) {
+      const checks=await verifyInstalledNative(window,directory,nativeRestart);
+      await writeFile(report,JSON.stringify({ok:true,checks},null,2));
+      clearTimeout(timer);app.exit(0);return;
+    }
     if (tempoCreate || tempoRestart) {
       const checks = await verifyInstalledTempo(window, directory, tempoRestart);
       await writeFile(report, JSON.stringify({ ok: true, checks }, null, 2));

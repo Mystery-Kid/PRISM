@@ -9,11 +9,16 @@
 #include "public.sdk/source/common/memorystream.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivstprocesscontext.h"
+#include "public.sdk/source/vst/utility/stringconvert.h"
+#include "pluginterfaces/gui/iplugview.h"
+#include "base/source/fobject.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
+#include <filesystem>
 #include <iostream>
+#include <iomanip>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -44,16 +49,18 @@ template<class T> static void write(std::ostream& out, T value) {
 }
 struct Midi { uint32_t frame; int32_t pitch; float velocity; uint32_t on; int32_t id; };
 struct Param { uint32_t id; double value; };
+#include "plugin-tools.hpp"
 static void render(VST3::Hosting::Module& module, const std::string& id,
                    const std::string& requestPath, const std::string& outputPath, const std::string& statePath) {
-  std::ifstream request(requestPath, std::ios::binary);
+  std::ifstream request(std::filesystem::u8path(requestPath), std::ios::binary);
   require(read<uint32_t>(request) == 0x54535650 && read<uint32_t>(request) == 1, "Invalid PVST request version.");
   const auto rate = read<uint32_t>(request), block = read<uint32_t>(request), frames = read<uint32_t>(request);
   const auto noteCount = read<uint32_t>(request), paramCount = read<uint32_t>(request), inputs = read<uint32_t>(request);
   const auto tempo = read<double>(request);
   const auto numerator = read<uint32_t>(request), denominator = read<uint32_t>(request);
   require(rate >= 8000 && rate <= 192000 && block >= 32 && block <= 2048 &&
-    frames && frames <= rate*30 && noteCount <= 100000 && paramCount <= 10000 && inputs <= 2 &&
+    frames && frames <= rate*600 && uint64_t(frames)*inputs*4 <= 240*1024*1024 &&
+    noteCount <= 100000 && paramCount <= 10000 && inputs <= 2 &&
     std::isfinite(tempo) && tempo >= 20 && tempo <= 300 && numerator >= 1 && numerator <= 32 &&
     (denominator == 2 || denominator == 4 || denominator == 8 || denominator == 16), "Unsupported native processing contract.");
   std::vector<float> input(size_t(frames)*inputs);
@@ -86,14 +93,7 @@ static void render(VST3::Hosting::Module& module, const std::string& id,
   auto controller = provider.getControllerPtr();
   FUnknownPtr<IAudioProcessor> processor(component);
   require(bool(processor) && processor->canProcessSampleSize(kSample32) == kResultOk, "Plugin does not support 32-bit float processing.");
-  if (statePath != "-") {
-    std::ifstream file(statePath, std::ios::binary | std::ios::ate);
-    require(bool(file) && file.tellg() <= 16*1024*1024 && file.tellg() >= 0, "Plugin state file is missing or oversized.");
-    std::vector<char> bytes(static_cast<size_t>(file.tellg())); file.seekg(0); file.read(bytes.data(), bytes.size());
-    MemoryStream state(bytes.data(), bytes.size());
-    require(component->setState(&state) == kResultOk, "Plugin state restoration failed.");
-    if (controller) { state.seek(0, IBStream::kIBSeekSet, nullptr); controller->setComponentState(&state); }
-  }
+  restoreState(component, controller, statePath);
   const int32 inputBuses = component->getBusCount(kAudio, kInput), outputBuses = component->getBusCount(kAudio, kOutput);
   SpeakerArrangement stereo = SpeakerArr::kStereo;
   require(outputBuses == 1 && inputBuses <= 1 &&
@@ -117,17 +117,35 @@ static void render(VST3::Hosting::Module& module, const std::string& id,
   transport.state = ProcessContext::kPlaying | ProcessContext::kTempoValid | ProcessContext::kTimeSigValid |
     ProcessContext::kProjectTimeMusicValid | ProcessContext::kBarPositionValid | ProcessContext::kContTimeValid;
   data.processContext = &transport; data.processMode = kOffline;
-  EventList events, outputEvents;
+  EventList events(int32(std::max<size_t>(50,notes.size()))), outputEvents(2048);
   ParameterChanges changes, outputChanges;
   data.inputEvents = &events; data.outputEvents = &outputEvents;
   data.inputParameterChanges = &changes; data.outputParameterChanges = &outputChanges;
-  std::ofstream out(outputPath, std::ios::binary | std::ios::trunc);
+  // Resolve parameter-driven latency/tails before allocating and reporting the
+  // output. Program changes go before individual controls to preserve edits.
+  orderProgramChanges(params, controller);
+  if (!params.empty()) {
+    data.numSamples = 0;
+    for (const auto& p: params) {
+      int32 index=0, point=0;
+      changes.addParameterData(p.id,index)->addPoint(0,p.value,point);
+      if (controller) controller->setParamNormalized(p.id,p.value);
+    }
+    require(processor->process(data) == kResultOk, "Plugin parameter flush failed.");
+    changes.clearQueue(); outputChanges.clearQueue();
+  }
+  const auto latency = processor->getLatencySamples(), tail = processor->getTailSamples();
+  require(latency <= rate*5 && tail <= rate*30, "Plugin latency exceeds five seconds or tail exceeds 30 seconds/infinite. Unsupported by buffered rendering.");
+  const auto processingFrames = frames+latency+tail;
+  require(processingFrames <= rate*600 && uint64_t(processingFrames)*8 <= 240*1024*1024,
+    "Native render including latency and tail exceeds ten minutes / 240 MiB.");
+  std::ofstream out(std::filesystem::u8path(outputPath), std::ios::binary | std::ios::trunc);
   require(bool(out), "Cannot create native output.");
-  write<uint32_t>(out, 0x4f535650); write<uint32_t>(out, 1); write(out, rate); write(out, frames);
-  write<uint32_t>(out, processor->getLatencySamples()); write<uint32_t>(out, processor->getTailSamples());
+  write<uint32_t>(out, 0x4f535650); write<uint32_t>(out, 1); write(out, rate); write(out, processingFrames);
+  write<uint32_t>(out, latency); write<uint32_t>(out, tail);
   size_t nextNote = 0;
-  for (uint32_t start = 0; start < frames;) {
-    auto count = std::min(block, frames-start);
+  for (uint32_t start = 0; start < processingFrames;) {
+    auto count = std::min(block, processingFrames-start);
     // VST3 permits variable sizes up to maxSamplesPerBlock. Split at MIDI
     // boundaries, keeping exact project timing without relying on a plugin's
     // handling of positive sample offsets within an otherwise silent block.
@@ -143,7 +161,7 @@ static void render(VST3::Hosting::Module& module, const std::string& id,
       data.inputs[bus].silenceFlags = inputs ? 0 : ~uint64(0);
       for (int32 channel = 0; channel < data.inputs[bus].numChannels; ++channel)
         for (uint32_t i = 0; i < count; ++i)
-          data.inputs[bus].channelBuffers32[channel][i] = inputs ? input[(start+i)*inputs+std::min(uint32_t(channel), inputs-1)] : 0;
+          data.inputs[bus].channelBuffers32[channel][i] = inputs && start+i < frames ? input[(start+i)*inputs+std::min(uint32_t(channel), inputs-1)] : 0;
     }
     for (int32 bus = 0; bus < data.numOutputs; ++bus) {
       data.outputs[bus].silenceFlags = 0;
@@ -166,6 +184,7 @@ static void render(VST3::Hosting::Module& module, const std::string& id,
       require(events.addEvent(event) == kResultOk, "Native MIDI event queue is full.");
     }
     require(processor->process(data) == kResultOk, "Plugin process() failed.");
+    require(processor->getLatencySamples() == latency, "Plugin changed latency during processing; dynamic-latency rendering is unsupported.");
     require(data.outputs[0].numChannels >= 1, "Plugin returned no output channels.");
     for (uint32_t i = 0; i < count; ++i) for (int32 channel = 0; channel < 2; ++channel) {
       const float sample = data.outputs[0].channelBuffers32[std::min(channel, data.outputs[0].numChannels-1)][i];
@@ -176,13 +195,15 @@ static void render(VST3::Hosting::Module& module, const std::string& id,
   }
   processor->setProcessing(false); component->setActive(false);
   MemoryStream state;
-  require(component->getState(&state) == kResultOk && state.getSize() <= 16*1024*1024, "Plugin state capture failed.");
-  std::ofstream stateFile(outputPath+".state", std::ios::binary | std::ios::trunc);
+  const auto saved = component->getState(&state);
+  require((saved == kResultOk || saved == kNotImplemented) && state.getSize() <= 16*1024*1024, "Plugin state capture failed.");
+  std::ofstream stateFile(std::filesystem::u8path(outputPath+".state"), std::ios::binary | std::ios::trunc);
   stateFile.write(state.getData(), state.getSize()); require(bool(stateFile), "Plugin state write failed.");
   std::cout << "{\"ok\":true,\"frames\":" << frames << ",\"sampleRate\":" << rate << "}\n";
 }
-int main(int argc, char** argv) {
+static int runHost(int argc, char** argv) {
 #ifdef _WIN32
+  SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
   const auto com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   if (FAILED(com)) return 3;
 #endif
@@ -202,6 +223,9 @@ int main(int argc, char** argv) {
           << ",\"categories\":" << quote(info.subCategoriesString()) << "}";
       }
       std::cout << "]\n";
+    } else if (std::string(argv[1]) == "--inspect" || std::string(argv[1]) == "--editor") {
+      require(argc >= 4, "Missing plugin class identity.");
+      pluginTools(*module, argv[3], std::string(argv[1]) == "--editor", argc > 4 ? argv[4] : "-", argc > 5 ? argv[5] : "", argc > 6 ? unsigned(std::stoul(argv[6])) : 0);
     } else {
       require(std::string(argv[1]) == "--render" && argc == 7, "Invalid native host arguments.");
       render(*module, argv[3], argv[4], argv[5], argv[6]);
@@ -209,3 +233,18 @@ int main(int argc, char** argv) {
     return 0;
   } catch (const std::exception& error) { std::cerr << error.what() << "\n"; return 1; }
 }
+#ifdef _WIN32
+int wmain(int argc, wchar_t** wide) {
+  std::vector<std::string> values; values.reserve(argc);
+  for (int i=0; i<argc; i++) {
+    int size = WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, nullptr, 0, nullptr, nullptr);
+    std::string value(size, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, value.data(), size, nullptr, nullptr);
+    value.resize(size-1); values.push_back(std::move(value));
+  }
+  std::vector<char*> args; for (auto& value: values) args.push_back(value.data());
+  return runHost(argc, args.data());
+}
+#else
+int main(int argc, char** argv) { return runHost(argc, argv); }
+#endif

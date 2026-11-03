@@ -15,7 +15,7 @@
     "test:projects": "tsx --test src/main/project-file.test.ts",
     "test:arrangement": "tsx --test src/shared/midi-arrangement.test.ts src/shared/scales.test.ts src/shared/waveform.test.ts src/renderer/components/arrangement-layout.test.ts",
     "test:audio-render": "node scripts/test-audio-render.mjs",
-    "package:win": "pnpm run build && electron-builder --win nsis",
+    "package:win": "node scripts/assert-native-runtime.mjs && pnpm run build && electron-builder --win nsis",
     "package:linux": "pnpm run build && electron-builder --linux AppImage",
     "package:mac": "pnpm run build && electron-builder --mac dmg"
   },
@@ -49,9 +49,15 @@
       "INSTRUMENT-LIBRARY.md",
       "PEDALBOARD.md",
       "TEMPO-ADAPTATION.md",
+      "NATIVE-VST3.md",
       "package.json"
     ],
     "win": {
+      "extraResources": [{
+        "from": "../../generated-artifacts/prism-native-runtime",
+        "to": "native",
+        "filter": ["prism-vst-host.exe", "notices/*.txt"]
+      }],
       "icon": "build/prism.ico",
       "target": [
         {

@@ -130,6 +130,7 @@ export type BusSend = {
 };
 
 export type AudioBus = {
+  nativeEffects?: import("./native-plugins").NativePluginState[];
   id: string;
   name: string;
   level: number;
@@ -181,6 +182,9 @@ export type LoopRange = {
 };
 
 export type Track = {
+  nativeInstrument?: import("./native-plugins").NativePluginState | null;
+  /** Ordered native effects run after the built-in effect chain. */
+  nativeEffects?: import("./native-plugins").NativePluginState[];
   id: string;
   name: string;
   type: TrackType;
@@ -207,6 +211,7 @@ export type SongKey = { root: number; scale: "major" | "naturalMinor" };
 export type MidiViewSettings = { smartView: boolean; scaleSnap: boolean };
 
 export type SongSession = {
+  nativeMasterEffects?: import("./native-plugins").NativePluginState[];
   id: string;
   releaseId: string;
   title: string;
@@ -265,7 +270,7 @@ export type CreateSongInput = {
   title: string;
 };
 
-export type AppBridge = {
+export type AppBridge = import("./native-plugins").NativePluginBridge & {
   saveProjectAs(session: SongSession): Promise<string | null>;
   openProject(): Promise<{ release: Release; session: SongSession } | null>;
   getAppVersion(): Promise<string>;

@@ -1,12 +1,6 @@
 name: Check PRISM native VST3 feasibility
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "artifacts/prism-desktop/native/**"
-      - "artifacts/prism-desktop/src/shared/native-contract.ts"
-      - "artifacts/prism-desktop/scripts/test-native-vst.ts"
-      - ".github/workflows/prism-native-vst-feasibility.yml"
 jobs:
   native-processing:
     runs-on: windows-latest

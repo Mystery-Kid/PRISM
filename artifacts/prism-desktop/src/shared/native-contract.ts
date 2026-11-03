@@ -9,7 +9,7 @@ export function encodeNativeSlice(session: SongSession, track: Track, options: {
 }): Uint8Array {
   const { sampleRate: rate, blockSize: block, seconds, input = [], parameters = [] } = options;
   if (!Number.isInteger(rate) || rate < 8000 || rate > 192000 || !Number.isInteger(block) ||
-    block < 32 || block > 2048 || !Number.isFinite(seconds) || seconds <= 0 || seconds > 30 ||
+    block < 32 || block > 2048 || !Number.isFinite(seconds) || seconds <= 0 || seconds > 600 ||
     !Number.isFinite(session.tempo) || session.tempo < 20 || session.tempo > 300)
     throw new Error("Unsupported native slice timing.");
   const frames = Math.ceil(rate*seconds), meter = parseTimeSignature(session.timeSignature);
@@ -46,7 +46,7 @@ export function decodeNativeSlice(bytes: Uint8Array): { sampleRate: number; late
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const rate = view.getUint32(8, true), frames = view.getUint32(12, true);
   if (view.getUint32(0, true) !== 0x4f535650 || view.getUint32(4, true) !== 1 ||
-      rate < 8000 || rate > 192000 || !frames || frames > rate*30 || bytes.byteLength !== 24+frames*8)
+      rate < 8000 || rate > 192000 || !frames || frames > rate*600 || bytes.byteLength !== 24+frames*8)
     throw new Error("Invalid native audio response.");
   const channels: [Float32Array, Float32Array] = [new Float32Array(frames), new Float32Array(frames)];
   for (let frame = 0; frame < frames; frame++) for (let channel = 0; channel < 2; channel++) {

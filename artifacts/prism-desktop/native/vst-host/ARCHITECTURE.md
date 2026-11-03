@@ -1,19 +1,26 @@
-# Native VST3: feasibility and integration decision
+# Native VST3: buffered workstation integration
 
-## Status — not completed VST support
+## Implementation and validation boundary
 
-This branch contains an isolated native **offline processing feasibility slice**.
-It is not wired into the workstation's normal playback/export, has no plugin
-browser or native editor windows, and does not change any saved project.
-The working Web Audio engine and installer are unchanged.
+The workstation's VST3 dock and real IPC bridge connect native instruments and
+track/bus/master effects to prepared playback and WAV export. Trusted local
+folder permissions and cached scan results remain outside project files.
+Project schema 9 stores class identities, parameter maps and opaque component/
+controller state. Source notes and audio stay editable. Native Win32 editors,
+generic parameters, ordered FX, bypass and explicit recovery are included.
 
-The local Linux development check loads the SDK's externally built MIT MDA
-module, processes PRISM-format MIDI through mda DX10, restores component state,
-and processes stereo PCM through mda Overdrive with measured parameter changes.
-It also rejects missing modules/classes and malformed requests. This establishes
-native processing feasibility, **not** installed-Windows, live, editor, crash,
-portable-project or hardware validation. The separate Windows feasibility
-workflow must pass before Windows processing is claimed.
+See `../../NATIVE-VST3.md` for the full user workflow, supported I/O, ordering,
+tail/memory/time limits, buffering and recording restrictions. This is a complete-
+mix buffered bridge, not a native audio engine or low-latency live plugin host.
+Audio edits pause native playback and invalidate the prepared mix.
+
+The normal Windows installer workflow builds the native host with the static
+MSVC runtime and original SDK notices, excluding every fixture plugin. Its
+installed create/reopen checks exercise external MDA and PRISM test-only
+gain/latency/editor/crash/wait modules, actual routed PCM, source scheduling,
+state persistence and cancellation. The old standalone feasibility workflow
+remains a manually runnable diagnostic. Neither validates physical audio devices,
+professional driver latency, or arbitrary commercial plugins.
 
 ## SDK and licensing
 
@@ -88,7 +95,7 @@ No plugin binaries are stored in the project or audio response.
 - This does not yet preserve editor/controller-only state, automation gestures,
   program lists, MIDI CC mappings, dynamic buses or plugin-requested restarts.
 
-## Integration choice requiring product approval
+## Approved integration choice
 
 The Web Audio graph cannot call a native VST3 processor synchronously from its
 audio thread. Native processing working in a command-line slice is insufficient.
@@ -119,8 +126,10 @@ transport, metering, exports and thorough installed-app regression checks.
 It may offer a better real-time design but does not itself prove professional
 driver latency. It needs explicit approval before implementation.
 
-Neither option is selected by this feasibility slice. No current session is
-migrated. The native-hosting task remains open.
+The user approved the buffered-plugin approach. Preserve the Web Audio engine;
+do not undertake the native-engine migration. Existing builtin sound IDs are not
+reinterpreted. Adding/removing native assignments does not convert source MIDI
+to persisted audio or replace the builtin implementation.
 
 ## Reproduce
 
