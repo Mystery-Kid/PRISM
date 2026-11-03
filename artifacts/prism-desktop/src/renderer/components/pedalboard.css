@@ -1,0 +1,246 @@
+.effects-workspace:has(.pedalboard-list) {
+  grid-template-columns: 180px minmax(0, 1fr) 260px;
+}
+.effects-workspace:has(.pedalboard-list) .effect-browser-card {
+  flex-shrink: 0;
+  align-items: flex-start;
+}
+.effects-workspace:has(.pedalboard-list) .effect-browser-card > div {
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr);
+}
+.effects-workspace:has(.pedalboard-list) .effect-browser-card strong {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.effect-chain-workspace {
+  --pedal-bg: var(--theme-panel, #191c20);
+  --pedal-raised: var(--theme-panel-raised, #22262b);
+  --pedal-inset: var(--theme-panel-inset, #121416);
+  --pedal-line: var(--theme-line, #353a40);
+  --pedal-line-soft: var(--theme-line-soft, #292e33);
+  --pedal-text: var(--theme-text, #e7e4dd);
+  --pedal-muted: var(--theme-muted, #a5a6a6);
+  --pedal-subtle: var(--theme-subtle, #797d80);
+  --pedal-accent: var(--theme-accent, #d9b77f);
+}
+
+.effect-chain-workspace .pedal-signal-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--pedal-accent);
+  font: 700 8px "SFMono-Regular", Consolas, monospace;
+  letter-spacing: .08em;
+}
+
+.effect-chain-workspace .pedal-signal-label svg { color: var(--pedal-muted); }
+.effect-chain-list.pedalboard-list {
+  align-content: flex-start;
+  align-items: stretch;
+  display: flex;
+  flex: 1 1 auto;
+  flex-flow: row wrap;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 4px 5px 10px 2px;
+  scrollbar-color: var(--pedal-line) transparent;
+  scrollbar-width: thin;
+}
+html[data-theme] .effect-unit.pedal-unit {
+  position: relative;
+  flex: 1 1 238px;
+  width: min(100%, 290px);
+  min-width: min(226px, 100%);
+  max-width: 330px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--pedal-line);
+  border-radius: 9px;
+  color: var(--pedal-text);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--pedal-accent) 5%, transparent), transparent 43%),
+    var(--pedal-bg);
+  box-shadow: 0 3px 12px #0002, inset 0 1px #ffffff08;
+  transition: border-color .16s ease, box-shadow .16s ease, opacity .16s ease;
+}
+html[data-theme] .effect-unit.pedal-unit.enabled {
+  border-color: color-mix(in srgb, var(--pedal-accent) 55%, var(--pedal-line));
+  box-shadow: 0 4px 15px #0002, inset 0 1px #ffffff0a;
+}
+html[data-theme] .effect-unit.pedal-unit:hover {
+  border-color: color-mix(in srgb, var(--pedal-accent) 72%, var(--pedal-line));
+}
+html[data-theme] .effect-unit.pedal-unit.is-dragging { opacity: .45; }
+html[data-theme] .effect-unit.pedal-unit:focus-visible {
+  outline: 2px solid var(--pedal-accent);
+  outline-offset: 2px;
+}
+.pedal-head {
+  min-height: 48px;
+  margin: 0;
+  padding: 7px 7px 7px 10px;
+  border-bottom: 1px solid var(--pedal-line-soft);
+  background: color-mix(in srgb, var(--pedal-raised) 75%, transparent);
+}
+.pedal-heading { display: grid; min-width: 0; gap: 2px; }
+.pedal-category {
+  color: var(--pedal-accent);
+  font: 700 7px "SFMono-Regular", Consolas, monospace;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+.pedal-bypass {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--pedal-text);
+  font-size: 11px;
+  font-weight: 700;
+}
+.pedal-bypass input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--pedal-accent);
+}
+.pedal-actions { flex: 0 0 auto; gap: 1px; }
+.effect-unit-actions.pedal-actions .icon-button {
+  width: 22px;
+  height: 24px;
+  border-color: transparent;
+  color: var(--pedal-muted);
+}
+.effect-unit-actions.pedal-actions .icon-button:hover:not(:disabled) {
+  color: var(--pedal-text);
+  border-color: var(--pedal-line);
+  background: var(--pedal-bg);
+}
+.effect-unit-actions.pedal-actions .pedal-drag-handle { cursor: grab; touch-action: none; }
+.effect-unit-actions.pedal-actions .pedal-drag-handle:active { cursor: grabbing; }
+.pedal-controls {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-evenly;
+  flex-wrap: wrap;
+  gap: 7px 4px;
+  min-height: 111px;
+  padding: 11px 9px 8px;
+}
+.rotary-control {
+  display: grid;
+  flex: 0 1 66px;
+  justify-items: center;
+  gap: 4px;
+  min-width: 54px;
+  color: var(--pedal-muted);
+  text-align: center;
+  user-select: none;
+}
+.rotary-label {
+  max-width: 80px;
+  overflow: hidden;
+  color: var(--pedal-muted);
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: .025em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rotary-dial {
+  position: relative;
+  display: grid;
+  width: 50px;
+  height: 50px;
+  place-items: center;
+  border: 1px solid var(--pedal-line);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 38% 30%, color-mix(in srgb, var(--pedal-raised) 90%, #fff 10%), var(--pedal-raised) 70%);
+  box-shadow: inset 0 2px 4px #0004, 0 2px 3px #0002;
+}
+.rotary-dial::before {
+  position: absolute;
+  inset: 4px;
+  border: 1px solid color-mix(in srgb, var(--pedal-line) 78%, transparent);
+  border-radius: 50%;
+  content: "";
+}
+.rotary-needle {
+  position: absolute;
+  top: 7px;
+  left: calc(50% - 1px);
+  width: 2px;
+  height: 17px;
+  border-radius: 2px;
+  background: var(--pedal-accent);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--pedal-accent) 32%, transparent);
+  transform: rotate(var(--rotary-angle, 0deg));
+  transform-origin: 1px 18px;
+  pointer-events: none;
+}
+.rotary-slider {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 50%;
+  opacity: .01;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.rotary-value {
+  min-height: 13px;
+  color: var(--pedal-text);
+  font: 9px "SFMono-Regular", Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pedal-advanced-toggle {
+  width: calc(100% - 18px);
+  min-height: 25px;
+  margin: 0 9px 7px;
+  border: 1px solid var(--pedal-line-soft);
+  border-radius: 4px;
+  color: var(--pedal-muted);
+  background: var(--pedal-inset);
+  font-size: 8px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.pedal-advanced-toggle:hover { color: var(--pedal-accent); border-color: var(--pedal-accent); }
+.pedal-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--pedal-line-soft);
+  color: var(--pedal-subtle);
+  font: 700 7px "SFMono-Regular", Consolas, monospace;
+  letter-spacing: .1em;
+}
+.pedal-foot i {
+  width: 22px;
+  height: 1px;
+  background: color-mix(in srgb, var(--pedal-accent) 52%, var(--pedal-line));
+}
+.pedal-foot span:last-child { margin-left: auto; }
+.effect-chain-empty { flex: 1 0 auto; padding: 18px 5px; }
+
+@media (max-width: 690px) {
+  .effects-workspace:has(.pedalboard-list) {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+  .effects-workspace:has(.pedalboard-list) > section { min-height: 220px; overflow: auto; }
+  .pedalboard-list { gap: 8px; }
+  html[data-theme] .effect-unit.pedal-unit { flex-basis: 100%; width: 100%; max-width: none; }
+  .pedal-controls { justify-content: space-around; }
+}

@@ -35,6 +35,8 @@ import {
 } from "../shared/migrations";
 import { createLibraryBackup, restoreLibraryBackup } from "./project-backup";
 import { writeAtomicText } from "./atomic-write";
+import { NativePluginHost } from "./native-plugins";
+import { validateNativeSession } from "../shared/native-plugins";
 import { ThemeStore } from "./theme-store";
 import { importProjectFile, saveProjectFile } from "./project-file";
 import { runDesktopSmoke } from "./desktop-smoke";
@@ -47,6 +49,9 @@ import {
   visibleEffectPresets,
 } from "../shared/effect-presets";
 import { normalizeEffectChain } from "../shared/effect-definitions";
+import { normalizeInstrumentPreset } from "../shared/instrument-presets";
+import { installFactoryDrums } from "./factory-drums";
+import { storeTempoMedia } from "./tempo-media";
 import { validateInstrumentTrackState } from "../shared/instrument-tracks";
 import { validateAudioRouting } from "../shared/audio-routing";
 import { validateMidiArrangement } from "../shared/midi-arrangement";
@@ -112,7 +117,7 @@ let closeApproved = false;
 const activeRecordings = new Map<string, ActiveRecording>();
 
 function emptyLibrary(): ProjectLibrary {
-  return { version: 5, releases: [], sessions: [], assets: [], effectPresets: [] };
+  return { version: 9, releases: [], sessions: [], assets: [], effectPresets: [], instrumentPresets: [] };
 }
 
 async function persistLibrary(): Promise<void> {
@@ -445,6 +450,13 @@ function allowedSender(senderId: number): void {
 let themeStore: ThemeStore;
 
 function registerIpcHandlers(): void {
+  const nativePlugins = new NativePluginHost(app.getPath("userData"),
+    app.isPackaged ? join(process.resourcesPath, "native", "prism-vst-host.exe")
+      : join(__dirname, "../../../../generated-artifacts/prism-native-build/Release/prism-vst-host.exe"),
+    () => mainWindow, smokeDirectory && process.argv.some(arg => arg.startsWith("--prism-native-source="))
+      ? { source: process.argv.find(arg => arg.startsWith("--prism-native-source="))!.slice("--prism-native-source=".length), editorCloseAfter: 500 }
+      : undefined);
+  let factoryDrums: ReturnType<typeof installFactoryDrums> | null = null;
   const handle = (
     channel: string,
     listener: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => unknown,
@@ -455,7 +467,36 @@ function registerIpcHandlers(): void {
     });
   };
 
+  handle("prism:native:status", () => nativePlugins.status());
+  handle("prism:native:add-folder", () => nativePlugins.addFolder());
+  handle("prism:native:scan", () => nativePlugins.scan());
+  handle("prism:native:inspect", (_event, classId) => nativePlugins.inspect(classId));
+  handle("prism:native:process", (_event, input) => nativePlugins.process(input));
+  handle("prism:native:edit", (_event, plugin) => nativePlugins.edit(plugin));
+  handle("prism:native:cancel", () => nativePlugins.cancel());
+  app.on("before-quit", () => nativePlugins.cancel(true));
   handle("prism:themes:get", () => themeStore.getState());
+  handle("prism:instruments:presets:list", () => structuredClone(getLibrary().instrumentPresets));
+  handle("prism:instruments:drums", () => {
+    factoryDrums ??= installFactoryDrums(getLibrary(), assetDirectory, persistLibrary).finally(() => { factoryDrums = null; });
+    return factoryDrums;
+  });
+  handle("prism:instruments:presets:save", async (_event, input) => {
+    const preset = normalizeInstrumentPreset({ ...input, updatedAt: new Date().toISOString() });
+    const previous = getLibrary().instrumentPresets;
+    const existing = previous.find((item) => item.id === preset.id);
+    preset.createdAt = existing?.createdAt ?? preset.createdAt;
+    getLibrary().instrumentPresets = [...previous.filter((item) => item.id !== preset.id), preset];
+    try { await persistLibrary(); return structuredClone(preset); }
+    catch (error) { getLibrary().instrumentPresets = previous; throw error; }
+  });
+  handle("prism:instruments:presets:delete", async (_event, id) => {
+    if (typeof id !== "string" || !id.trim()) throw new Error("Choose an instrument preset.");
+    const previous = getLibrary().instrumentPresets;
+    getLibrary().instrumentPresets = previous.filter((item) => item.id !== id);
+    try { await persistLibrary(); }
+    catch (error) { getLibrary().instrumentPresets = previous; throw error; }
+  });
   handle("prism:app:version", () => app.getVersion());
   handle("prism:app:exit", () => { mainWindow?.close(); });
   handle("prism:project:save-as", async (_event, input: SongSession) => {
@@ -487,6 +528,7 @@ function registerIpcHandlers(): void {
       sessions: [...previous.sessions, ...imported.library.sessions],
       assets: [...previous.assets, ...imported.library.assets],
       effectPresets: [...previous.effectPresets, ...imported.library.effectPresets],
+      instrumentPresets: previous.instrumentPresets,
     };
     try {
       await persistLibrary();
@@ -662,6 +704,9 @@ function registerIpcHandlers(): void {
   );
   handle("prism:sessions:save", async (_event, updated: SongSession) => {
     const current = getSession(updated.id);
+    validateNativeSession(updated);
+    if (current.nativeMasterEffects?.length && updated.nativeMasterEffects === undefined)
+      throw new Error("Saved native master FX are missing; the project was not changed.");
     if (updated.songKey !== undefined && updated.songKey !== null && !isSongKey(updated.songKey)) {
       throw new Error("The Song Key must have a supported root and scale.");
     }
@@ -704,6 +749,9 @@ function registerIpcHandlers(): void {
     }));
     for (const track of updated.tracks) {
       const previous = current.tracks.find((entry) => entry.id === track.id);
+      if ((previous?.nativeEffects?.length && track.nativeEffects === undefined) ||
+        (previous?.nativeInstrument && track.nativeInstrument === undefined))
+        throw new Error(`Saved VST3 assignments for "${track.name}" are incomplete.`);
       if (
         (track.outputBusId === undefined && previous?.outputBusId) ||
         (track.sends === undefined && previous?.sends.length)
@@ -713,6 +761,8 @@ function registerIpcHandlers(): void {
     }
     for (const bus of updated.buses ?? []) {
       const previous = current.buses.find((entry) => entry.id === bus.id);
+      if (previous?.nativeEffects?.length && bus.nativeEffects === undefined)
+        throw new Error(`Saved VST3 bus FX for "${bus.name}" are missing.`);
       if (
         (bus.outputBusId === undefined && previous?.outputBusId) ||
         (bus.sends === undefined && previous?.sends.length)
@@ -747,6 +797,11 @@ function registerIpcHandlers(): void {
         track.clips.some(
           (clip: AudioClip) =>
             !getLibrary().assets.some((asset) => asset.id === clip.assetId) ||
+            (clip.tempoAdaptation !== undefined && (
+              clip.tempoAdaptation.algorithm !== "prism-wsola-v1" ||
+              !getLibrary().assets.some(asset => asset.id === clip.tempoAdaptation?.originalAssetId) ||
+              !Number.isFinite(clip.tempoAdaptation.originalTempo) || clip.tempoAdaptation.originalTempo < 20 ||
+              !Number.isFinite(clip.tempoAdaptation.lengthRatio) || clip.tempoAdaptation.lengthRatio < .5 || clip.tempoAdaptation.lengthRatio > 2)) ||
             !Number.isFinite(clip.startSeconds) ||
             clip.startSeconds < 0 ||
             !Number.isFinite(clip.durationSeconds) ||
@@ -782,7 +837,7 @@ function registerIpcHandlers(): void {
       buses: busesWithValidatedEffects,
       masterEffects,
       title: cleanTitle(updated.title),
-      tempo: Math.min(300, Math.max(20, Math.round(updated.tempo))),
+      tempo: Math.min(300, Math.max(20, updated.tempo)),
       masterVolume: Math.min(1.5, Math.max(0, updated.masterVolume)),
       updatedAt: new Date().toISOString(),
     };
@@ -791,6 +846,13 @@ function registerIpcHandlers(): void {
     getRelease(saved.releaseId).updatedAt = saved.updatedAt;
     await persistLibrary();
     return saved;
+  });
+  let tempoMediaBusy = false;
+  handle("prism:audio:tempo-media", async (_event, media) => {
+    if (tempoMediaBusy || activeRecordings.size) throw new Error("Finish the current media operation before adapting tempo.");
+    tempoMediaBusy = true;
+    try { await storeTempoMedia(getLibrary(), assetDirectory, media, persistLibrary); }
+    finally { tempoMediaBusy = false; }
   });
   handle("prism:effects:presets:list", async (_event, projectId: string) => {
     getRelease(projectId);
@@ -1341,7 +1403,9 @@ function createWindow(): void {
   if (process.env.ELECTRON_RENDERER_URL) {
     void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    void mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+    void mainWindow.loadFile(join(__dirname, "../renderer/index.html"),
+      smokeDirectory && (process.argv.includes("--prism-native-create") || process.argv.includes("--prism-native-reopen"))
+        ? { query: { nativeSmoke: "1" } } : {});
   }
 }
 

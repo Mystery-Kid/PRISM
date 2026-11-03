@@ -26,7 +26,10 @@ import {
   type TrackGraph,
 } from "./graph";
 import { renderSessionWav } from "./render";
+import { hasNativePlugins, nativeAudioKey, renderNativeSessionBuffer, type BufferedNativeAudio } from "./native-render";
 import { createMidiEnvelopePlan, getMidiPlaybackWindow, midiPitchToFrequency } from "./midi";
+import { instrumentIsAvailable, getInstrumentId } from "@shared/instrument-library";
+import { instrumentReleaseTail, scheduleInstrumentVoice, type InstrumentVoice } from "./instrument-voice";
 
 export type AudioDevice = {
   id: string;
@@ -37,6 +40,7 @@ export type AudioDevice = {
 export type EngineStatus = "stopped" | "playing" | "recording";
 
 export type AudioEngineSnapshot = {
+  activeSources?: number;
   status: EngineStatus;
   error: string | null;
   recording: boolean;
@@ -68,6 +72,8 @@ export class AudioEngine {
   private disposed = false;
   private playbackGeneration = 0;
   private starting = false;
+  private nativePrepared: BufferedNativeAudio | null = null;
+  private nativePreparedKey = "";
   private session: SongSession | null = null;
   private assetUrl: (assetId: string) => string;
   private decodedAssets = new Map<string, AudioBuffer>();
@@ -77,6 +83,8 @@ export class AudioEngine {
   private routingGraph = new AudioRoutingGraph();
   private master: MasterGraph | null = null;
   private sources = new Set<ScheduledNode>();
+  private previewSources = new Set<ScheduledNode>();
+  private previewGeneration = 0;
   private scheduler: ReturnType<typeof setInterval> | null = null;
   private running = false;
   private playhead = 0;
@@ -143,7 +151,13 @@ export class AudioEngine {
     for (const [trackId, graph] of this.tracks) meters[trackId] = readMeter(graph.analyser);
     for (const [busId, graph] of this.buses) meters[`bus:${busId}`] = readMeter(graph.analyser);
     if (this.master) meters.master = readMeter(this.master.analyser);
+    if (this.nativePrepared && this.session && hasNativePlugins(this.session)) {
+      const frame = Math.floor(this.positionNow()*50);
+      for (const [id, value] of this.nativePrepared.meters) meters[id] = this.running
+        ? { peak: value.peak[frame] ?? 0, rms: value.rms[frame] ?? 0 } : { peak: 0, rms: 0 };
+    }
     return {
+      activeSources: this.sources.size,
       status: this.running ? "playing" : "stopped",
       error: this.lastError,
       recording: Boolean(this.recordingId),
@@ -176,6 +190,17 @@ export class AudioEngine {
       session = this.session ?? session;
       session = withDecodedClipDurations(session, this.decodedAssets);
       this.session = session;
+      if (hasNativePlugins(session)) {
+        const key = nativeAudioKey(session);
+        if (!this.nativePrepared || key !== this.nativePreparedKey) {
+          this.stopScheduledSources(); this.clearScheduler(); this.running = false; this.playhead = position;
+          this.lastError = "Preparing buffered native audio. Audio edits require re-preparation; live MIDI/recording is unavailable while VST3 is enabled.";
+          const prepared = await renderNativeSessionBuffer(session, id => this.loadAudio(id),
+            () => this.disposed || generation !== this.playbackGeneration);
+          if (this.disposed || generation !== this.playbackGeneration) return;
+          this.nativePrepared = prepared; this.nativePreparedKey = key; this.lastError = null;
+        }
+      } else { this.nativePrepared = null; this.nativePreparedKey = ""; }
       this.syncGraphs(session);
       const duration = getSessionDuration(session);
       if (!options.allowEmpty && duration <= 0) {
@@ -210,6 +235,7 @@ export class AudioEngine {
   }
 
   pause(): number {
+    if (this.starting && this.session && hasNativePlugins(this.session)) void window.prism.cancelNativeProcessing().catch(() => undefined);
     const position = this.positionNow();
     this.playbackGeneration += 1;
     this.starting = false;
@@ -228,7 +254,8 @@ export class AudioEngine {
 
   seek(position: number): void {
     if (this.recordingId) return;
-    const target = Math.max(0, Math.min(getSessionDuration(this.session), position));
+    this.stopPreviewSources();
+    const target = Math.max(0, Math.min(this.totalDuration(), position));
     const wasRunning = this.running || this.starting;
     this.playhead = target;
     if (wasRunning && this.session) {
@@ -240,6 +267,12 @@ export class AudioEngine {
     const previous = this.session;
     const position = this.positionNow();
     const wasRunning = this.running || this.starting;
+    if (previous && (hasNativePlugins(previous) || hasNativePlugins(next)) && nativeAudioKey(previous) !== nativeAudioKey(next)) {
+      this.pause(); this.nativePrepared = null; this.nativePreparedKey = ""; this.session = next;
+      this.syncGraphs(next);
+      if (wasRunning) this.lastError = "Buffered VST3 audio changed. Playback paused; press Play to prepare the updated mix.";
+      return;
+    }
     this.session = next;
     const sampleIds = getAssignedSampleIds(next);
     for (const id of this.sampleErrors) {
@@ -247,7 +280,9 @@ export class AudioEngine {
     }
     this.refreshSampleIssues(next);
     this.syncGraphs(next);
-    if (wasRunning && previous && needsReschedule(previous, next)) {
+    const reschedule = previous && needsReschedule(previous, next);
+    if (reschedule) this.stopPreviewSources();
+    if (wasRunning && reschedule) {
       void this.start(next, position).catch(() => undefined);
     }
   }
@@ -260,6 +295,7 @@ export class AudioEngine {
     callbacks: RecordingCallbacks,
   ): Promise<void> {
     if (this.recordingId) throw new Error("A recording is already in progress.");
+    if (hasNativePlugins(session)) throw new Error("Live recording/monitoring is unavailable during buffered VST3 playback. Bypass native FX and bypass/remove the native instrument, or record in a builtin-only session.");
     const track = session.tracks.find((item) => item.id === trackId);
     if (!track || track.type !== "audio") {
       throw new Error("Choose an armed audio track before recording.");
@@ -493,6 +529,11 @@ export class AudioEngine {
 
   private refreshSampleIssues(session: SongSession): void {
     const messages: string[] = [];
+    for (const track of session.tracks) {
+      if (track.type === "instrument" && !track.nativeInstrument && !instrumentIsAvailable(track.instrument)) {
+        messages.push(`Instrument "${getInstrumentId(track.instrument)}" is unavailable on "${track.name}". Raw settings and MIDI were kept; choose a replacement.`);
+      }
+    }
     if (this.sampleErrors.size > 0) {
       messages.push("Some assigned samples are missing or unsupported. Replace them; MIDI patterns and assignments were kept.");
     }
@@ -522,9 +563,32 @@ export class AudioEngine {
     pitch: number,
     velocity = 96,
   ): Promise<void> {
+    this.stopPreviewSources();
+    const generation = this.previewGeneration;
     const context = await this.ensureContext();
+    if (generation !== this.previewGeneration) return;
     const track = session.tracks.find((item) => item.id === trackId);
-    if (!track) throw new Error("Choose a sampler or drum track to preview.");
+    if (!track) throw new Error("Choose an instrument, sampler or drum track to preview.");
+    if (track.nativeInstrument) {
+      if (!track.nativeInstrument.enabled) throw new Error("This native instrument is bypassed. Enable it or remove the assignment to restore the builtin instrument.");
+      const previewSession = { ...session, loopRange: null, metronomeEnabled: false, tracks: [{ ...track, clips: [], midiClips: [],
+        notes: [{ id: "native-preview", pitch, velocity, startBeat: 0, durationBeats: 1 }] }] };
+      const preview = await renderNativeSessionBuffer(previewSession, id => this.loadAudio(id), () => generation !== this.previewGeneration);
+      if (generation !== this.previewGeneration) return;
+      const source = context.createBufferSource() as AudioBufferSourceNode & ScheduledNode;
+      source.buffer = preview.audio; source.connect(context.destination); this.previewSources.add(source);
+      source.__prismCleanup = () => source.disconnect();
+      source.onended = () => { source.__prismCleanup?.(); this.previewSources.delete(source); };
+      source.start(); return;
+    }
+    if (track.type === "instrument" && track.instrument) {
+      this.session = session; this.syncGraphs(session);
+      const graph = this.tracks.get(track.id);
+      if (!graph) throw new Error("The instrument track's audio path could not be created.");
+      this.keepInstrumentVoice(scheduleInstrumentVoice(context, graph.input, track.instrument, { pitch, velocity },
+        { when: context.currentTime + .01, duration: .7 }), true);
+      return;
+    }
     const trigger = getSampleTrigger(track, pitch, velocity);
     if (!trigger) throw new Error("Assign a supported sample to this MIDI note before previewing it.");
 
@@ -539,6 +603,7 @@ export class AudioEngine {
       this.refreshSampleIssues(session);
       throw new Error("The assigned sample is missing or unsupported. Replace it; MIDI and pad assignments were kept.");
     }
+    if (generation !== this.previewGeneration) return;
     const graph = this.tracks.get(track.id);
     if (!graph) throw new Error("The track's audio path could not be created.");
     this.refreshSampleIssues(session);
@@ -557,8 +622,10 @@ export class AudioEngine {
     source.onended = () => {
       source.__prismCleanup?.();
       this.sources.delete(source);
+      this.previewSources.delete(source);
     };
     this.sources.add(source);
+    this.previewSources.add(source);
     source.start(context.currentTime + 0.01);
   }
 
@@ -612,8 +679,13 @@ export class AudioEngine {
 
   private totalDuration(): number {
     if (!this.session) return 0;
+    if (hasNativePlugins(this.session) && this.nativePrepared) return this.nativePrepared.audio.duration;
     let duration = getSessionDuration(this.session);
     for (const track of this.session.tracks) {
+      if (track.type === "instrument") {
+        for (const note of track.notes) duration = Math.max(duration,
+          beatToSeconds(note.startBeat + note.durationBeats, this.session.tempo, this.session.timeSignature) + instrumentReleaseTail(track.instrument));
+      }
       if (track.type !== "sampler" && track.type !== "drum") continue;
       for (const note of track.notes) {
         const trigger = getSampleTrigger(track, note.pitch, note.velocity);
@@ -680,6 +752,17 @@ export class AudioEngine {
     contextFrom: number,
   ): void {
     if (!this.context || timelineTo <= timelineFrom) return;
+    if (hasNativePlugins(session)) {
+      if (!this.nativePrepared || !this.nativePreparedKey) throw new Error("Native playback requires preparation.");
+      const source = this.context.createBufferSource() as AudioBufferSourceNode & ScheduledNode;
+      source.buffer = this.nativePrepared.audio;
+      const duration = Math.min(timelineTo-timelineFrom, source.buffer.duration-timelineFrom);
+      if (duration <= 0) return;
+      source.connect(this.context.destination);
+      source.__prismCleanup = () => source.disconnect();
+      source.onended = () => { source.__prismCleanup?.(); this.sources.delete(source); };
+      this.sources.add(source); source.start(contextFrom, timelineFrom, duration); return;
+    }
     for (const track of session.tracks) {
       // Keep voices scheduled behind the fader so unmute/unsolo can restore
       // an already-held note immediately, not only future note-on events.
@@ -700,7 +783,7 @@ export class AudioEngine {
           contextFrom,
         );
       }
-      if (track.type === "instrument" && track.instrument) {
+      if (track.type === "instrument" && track.instrument && !track.nativeInstrument) {
         track.notes.forEach((note) =>
           this.scheduleNote(session, track, graph, note, timelineFrom, timelineTo, contextFrom),
         );
@@ -784,9 +867,11 @@ export class AudioEngine {
     timelineTo: number,
     contextFrom: number,
   ): void {
-    if (!this.context || !track.instrument) return;
+    if (!this.context || !track.instrument || !instrumentIsAvailable(track.instrument)) return;
+    const tail = instrumentReleaseTail(track.instrument);
+    const extendedNote = tail ? { ...note, durationBeats: note.durationBeats + tail / secondsPerBeat(session.tempo, session.timeSignature) } : note;
     const playback = getMidiPlaybackWindow(
-      note,
+      extendedNote,
       session.tempo,
       session.timeSignature,
       timelineFrom,
@@ -795,43 +880,21 @@ export class AudioEngine {
       session.loopRange,
     );
     if (!playback) return;
-    const oscillator = this.context.createOscillator() as ScheduledNode;
-    const oscillatorNode = oscillator as OscillatorNode;
-    const envelope = this.context.createGain();
-    const instrument = track.instrument;
-    oscillatorNode.type = instrument.waveform;
-    oscillatorNode.frequency.value = midiPitchToFrequency(note.pitch);
     const when = contextFrom + playback.startSeconds - timelineFrom;
-    const endAt = contextFrom + playback.endSeconds - timelineFrom;
-    const noteDuration = playback.endSeconds - playback.startSeconds + playback.offsetSeconds;
-    const envelopePlan = createMidiEnvelopePlan(
-      note,
-      instrument,
-      noteDuration,
-      playback.offsetSeconds,
-    );
-    envelope.gain.setValueAtTime(envelopePlan.initialValue, when);
-    for (const event of envelopePlan.events) {
-      const eventTime = when + event.timeSeconds - playback.offsetSeconds;
-      if (event.curve === "set") {
-        envelope.gain.setValueAtTime(event.value, eventTime);
-      } else {
-        envelope.gain.linearRampToValueAtTime(event.value, eventTime);
-      }
+    const noteDuration = tail ? beatToSeconds(note.durationBeats, session.tempo, session.timeSignature)
+      : playback.endSeconds - playback.startSeconds + playback.offsetSeconds;
+    this.keepInstrumentVoice(scheduleInstrumentVoice(this.context, graph.input, track.instrument, note,
+      { when, duration: noteDuration, offset: playback.offsetSeconds, maximumDuration: playback.endSeconds - playback.startSeconds }));
+  }
+
+  private keepInstrumentVoice(voice: InstrumentVoice, preview = false): void {
+    for (const node of voice.sources) {
+      const source = node as ScheduledNode;
+      source.__prismCleanup = voice.cleanup;
+      source.onended = () => { voice.cleanup(); this.sources.delete(source); this.previewSources.delete(source); };
+      this.sources.add(source);
+      if (preview) this.previewSources.add(source);
     }
-    oscillator.connect(envelope);
-    envelope.connect(graph.input);
-    oscillator.__prismCleanup = () => {
-      oscillator.disconnect();
-      envelope.disconnect();
-    };
-    oscillator.onended = () => {
-      oscillator.__prismCleanup?.();
-      this.sources.delete(oscillator);
-    };
-    this.sources.add(oscillator);
-    oscillator.start(when);
-    oscillator.stop(endAt + 0.01);
   }
 
   private scheduleSampleNote(
@@ -931,6 +994,7 @@ export class AudioEngine {
   }
 
   private stopScheduledSources(): void {
+    this.previewGeneration++;
     for (const source of this.sources) {
       try {
         source.stop();
@@ -940,6 +1004,17 @@ export class AudioEngine {
       source.__prismCleanup?.();
     }
     this.sources.clear();
+    this.previewSources.clear();
+  }
+
+  private stopPreviewSources(): void {
+    this.previewGeneration++;
+    for (const source of this.previewSources) {
+      try { source.stop(); } catch { /* It may already have ended. */ }
+      source.__prismCleanup?.();
+      this.sources.delete(source);
+    }
+    this.previewSources.clear();
   }
 
   private clearScheduler(): void {

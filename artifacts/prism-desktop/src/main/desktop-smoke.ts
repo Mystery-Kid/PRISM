@@ -2,15 +2,49 @@ import { app, type BrowserWindow } from "electron";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { verifyInstalledEditor } from "./editor-smoke";
+import { captureThemeScreenshot, verifyInitialDay, verifyInstalledThemes } from "./theme-smoke";
+import { verifyInstalledInstruments } from "./instrument-smoke";
+import { verifyInstalledPedals } from "./pedalboard-smoke";
+import { verifyInstalledTempo } from "./tempo-smoke";
+import { verifyInstalledNative } from "./native-smoke";
 
 /** Opt-in installed-app check. Always uses isolated userData supplied by CI. */
 export async function runDesktopSmoke(window: BrowserWindow, directory: string, reopen: boolean): Promise<void> {
-  const report = join(directory, reopen ? "reopen.json" : "first-launch.json");
+  const nativeCreate = process.argv.includes("--prism-native-create"), nativeRestart = process.argv.includes("--prism-native-reopen");
+  const themeRestart = process.argv.includes("--prism-theme-reopen");
+  const instrumentCreate = process.argv.includes("--prism-instrument-create");
+  const instrumentRestart = process.argv.includes("--prism-instrument-reopen");
+  const pedalCreate = process.argv.includes("--prism-pedal-create");
+  const pedalRestart = process.argv.includes("--prism-pedal-reopen");
+  const tempoCreate = process.argv.includes("--prism-tempo-create");
+  const tempoRestart = process.argv.includes("--prism-tempo-reopen");
+  const report = join(directory, nativeCreate ? "native-create.json" : nativeRestart ? "native-reopen.json" : tempoCreate ? "tempo-create.json" : tempoRestart ? "tempo-reopen.json" : pedalCreate ? "pedals-create.json" : pedalRestart ? "pedals-reopen.json" : instrumentCreate ? "instruments-create.json" : instrumentRestart ? "instruments-reopen.json" :
+    themeRestart ? "theme-reopen.json" : reopen ? "reopen.json" : "first-launch.json");
   const timer = setTimeout(() => {
     void writeFile(report, JSON.stringify({ ok: false, error: "Installed app check timed out." }))
       .finally(() => app.exit(1));
   }, 100_000);
   try {
+    if (nativeCreate || nativeRestart) {
+      const checks=await verifyInstalledNative(window,directory,nativeRestart);
+      await writeFile(report,JSON.stringify({ok:true,checks},null,2));
+      clearTimeout(timer);app.exit(0);return;
+    }
+    if (tempoCreate || tempoRestart) {
+      const checks = await verifyInstalledTempo(window, directory, tempoRestart);
+      await writeFile(report, JSON.stringify({ ok: true, checks }, null, 2));
+      clearTimeout(timer); app.exit(0); return;
+    }
+    if (pedalCreate || pedalRestart) {
+      const checks = await verifyInstalledPedals(window, directory, pedalRestart);
+      await writeFile(report, JSON.stringify({ ok: true, checks }, null, 2));
+      clearTimeout(timer); app.exit(0); return;
+    }
+    if (instrumentCreate || instrumentRestart) {
+      const checks = await verifyInstalledInstruments(window, directory, instrumentRestart);
+      await writeFile(report, JSON.stringify({ ok: true, checks }, null, 2));
+      clearTimeout(timer); app.exit(0); return;
+    }
     const result = await window.webContents.executeJavaScript(`(async () => {
       const assert = (condition, message) => { if (!condition) throw new Error(message); };
       const wait = async (predicate, label) => {
@@ -62,8 +96,6 @@ export async function runDesktopSmoke(window: BrowserWindow, directory: string, 
           startSeconds: 3, sourceStartSeconds: 1, durationSeconds: 1 });
         recordedTrack.recordArmed = false;
         await bridge.saveSession(recorded);
-        await bridge.claimTheme('theme.starry');
-        await bridge.applyTheme('theme.starry');
       }
       releases = await bridge.listReleases();
       assert(releases.length === 1, 'Isolated project was not preserved');
@@ -72,8 +104,15 @@ export async function runDesktopSmoke(window: BrowserWindow, directory: string, 
       assert(session.songKey && session.songKey.root === 7 && session.songKey.scale === 'major', 'Song Key was lost');
       assert(session.midiView && session.midiView.smartView, 'MIDI view settings were lost');
       const state = await bridge.getThemeState();
-      assert(state.effectiveThemeId === 'theme.starry', 'Theme selection did not persist');
-      ${reopen ? `
+      assert(state.effectiveThemeId === ${JSON.stringify(themeRestart ? "theme.starry" : reopen ? "theme.day" : "theme.original")},
+        'Theme selection did not persist');
+      await wait(()=>document.documentElement.dataset.theme===state.effectiveThemeId, 'persisted renderer theme');
+      ${reopen && !themeRestart ? `
+      window.__prismSmokeAudioContexts=[];
+      window.AudioContext=new Proxy(window.AudioContext,{construct(Target,args) {
+        const context=Reflect.construct(Target,[{...args[0],sinkId:{type:'none'}}]);
+        window.__prismSmokeAudioContexts.push(context); return context;
+      }});
       const project = await wait(() => document.querySelector('.project-item'), 'persisted project card');
       project.click();
       await wait(() => document.querySelector('.workstation'), 'workstation');
@@ -82,13 +121,20 @@ export async function runDesktopSmoke(window: BrowserWindow, directory: string, 
       assert(JSON.stringify(menus) === JSON.stringify(['File','Edit','Insert','View','Transport','Help']),
         'Menu order incorrect: ' + menus.join(', '));
       ` : ""}
-      return { ok: true, phase: ${JSON.stringify(reopen ? "reopen" : "first-launch")},
-        checks: ['installed Electron startup', 'context-isolated IPC', 'song save/load', 'MIDI persistence', 'offline theme persistence'${reopen ? ", 'workstation menu order'" : ""}],
+      return { ok: true, phase: ${JSON.stringify(themeRestart ? "theme-reopen" : reopen ? "reopen" : "first-launch")},
+        checks: ['installed Electron startup', 'context-isolated IPC', 'song save/load', 'MIDI persistence', 'offline theme persistence'${reopen && !themeRestart ? ", 'workstation menu order'" : ""}],
         version: await bridge.getAppVersion() };
     })()`, true);
-    if (reopen) {
+    if (themeRestart) {
+      result.checks.push("Starry selection survives a second process restart");
+      await captureThemeScreenshot(window, directory, "theme-starry-library-restarted", 450);
+    } else if (reopen) {
       const editorChecks = await verifyInstalledEditor(window, directory);
       result.checks.push(...editorChecks);
+      result.checks.push(...await verifyInstalledThemes(window, directory));
+    } else {
+      result.checks.push(...await verifyInitialDay(window, directory));
+      await window.webContents.executeJavaScript(`window.prism.claimTheme('theme.starry')`, true);
     }
     await writeFile(report, JSON.stringify(result, null, 2));
     clearTimeout(timer);

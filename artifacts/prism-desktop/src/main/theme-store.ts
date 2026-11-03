@@ -2,7 +2,7 @@ import { mkdir, readFile, copyFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { writeAtomicText } from "./atomic-write";
-import { ORIGINAL_ID, STARRY_ID, starryPackage, type ThemeState } from "../shared/themes";
+import { BUILT_IN_THEME_IDS, ORIGINAL_ID, STARRY_ID, starryPackage, type ThemeState } from "../shared/themes";
 
 type Settings = { version: 1; claimedThemeIds: string[]; selectedThemeId: string };
 const defaults = (): Settings => ({ version: 1, claimedThemeIds: [], selectedThemeId: ORIGINAL_ID });
@@ -72,13 +72,14 @@ export class ThemeStore {
   private async snapshot(): Promise<ThemeState> {
     const available = await this.packageAvailable();
     const selected = this.settings.selectedThemeId;
-    const effective = selected === STARRY_ID && available && this.settings.claimedThemeIds.includes(STARRY_ID)
-      ? STARRY_ID : ORIGINAL_ID;
+    const effective = BUILT_IN_THEME_IDS.includes(selected) ? selected
+      : selected === STARRY_ID && available && this.settings.claimedThemeIds.includes(STARRY_ID)
+        ? STARRY_ID : ORIGINAL_ID;
     return {
       claimedThemeIds: [...this.settings.claimedThemeIds],
       selectedThemeId: selected,
       effectiveThemeId: effective,
-      availableThemeIds: available ? [ORIGINAL_ID, STARRY_ID] : [ORIGINAL_ID],
+      availableThemeIds: available ? [...BUILT_IN_THEME_IDS, STARRY_ID] : [...BUILT_IN_THEME_IDS],
       warning: this.warning ?? (!available ? "Starry’s local theme package is missing or incompatible. Your claim is retained. Repair the theme to reinstall it offline."
         : selected !== effective ? "The selected theme is unavailable. PRISM Original is being used without changing your saved selection." : null),
     };
@@ -106,7 +107,7 @@ export class ThemeStore {
 
   apply(id: unknown): Promise<ThemeState> {
     return this.enqueue(async () => {
-      if (id !== ORIGINAL_ID && id !== STARRY_ID) throw new Error("Unknown theme.");
+      if (typeof id !== "string" || (!BUILT_IN_THEME_IDS.includes(id) && id !== STARRY_ID)) throw new Error("Unknown theme.");
       if (id === STARRY_ID && !this.settings.claimedThemeIds.includes(id)) throw new Error("Claim Starry in the Shop before applying it.");
       if (id === STARRY_ID && !await this.packageAvailable()) throw new Error("Starry needs repair before it can be applied.");
       await this.save({ ...this.settings, selectedThemeId: id });

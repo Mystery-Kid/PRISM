@@ -3,6 +3,7 @@ import {
   normalizeEffectParameters,
 } from "@shared/effect-definitions";
 import type { EffectState } from "@shared/types";
+import { createCreativeProcessor } from "./creative-effects";
 
 export type EffectHandle = {
   input: GainNode;
@@ -77,6 +78,9 @@ export function createEffectHandle(
   let currentReverbDecay = 1.6;
   let lastParameters: Record<string, number> | null = null;
   let lastEnabled: boolean | null = null;
+  let creative: ReturnType<typeof createCreativeProcessor> | null = null;
+  let disposed = false;
+  const retireTimers = new Set<ReturnType<typeof setTimeout>>();
 
   if (initial.type === "equalizer") {
     equalizer = context.createBiquadFilter();
@@ -96,14 +100,18 @@ export function createEffectHandle(
     input.connect(delay);
     delay.connect(wet);
     processors.push(delay, feedback);
-  } else {
+  } else if (initial.type === "compressor") {
     compressor = context.createDynamicsCompressor();
     input.connect(compressor);
     compressor.connect(wet);
     processors.push(compressor);
+  } else {
+    creative = createCreativeProcessor(context, input, wet, initial.type);
   }
 
   const update = (effect: EffectState, immediate = false): void => {
+    if (disposed) return;
+    if (effect.type !== initial.type) throw new Error("Replace an effect handle before changing its processor type.");
     const parameters = normalizeEffectParameters(effect.type, effect.parameters);
     const enabled = effect.enabled;
     if (
@@ -127,15 +135,21 @@ export function createEffectHandle(
         reverb = next;
         processors.push(next.processor, next.level);
         currentReverbDecay = decay;
-        window.setTimeout(() => {
+        const timer = setTimeout(() => {
+          retireTimers.delete(timer);
           try {
             input.disconnect(previous.processor);
             previous.processor.disconnect();
             previous.level.disconnect();
+            for (const node of [previous.processor, previous.level]) {
+              const index = processors.indexOf(node);
+              if (index >= 0) processors.splice(index, 1);
+            }
           } catch {
             // Disposal can race this crossfade when a song is closed.
           }
         }, 100);
+        retireTimers.add(timer);
       }
     } else if (effect.type === "delay" && delay) {
       setParam(delay.delayTime, parameters.time, context, immediate);
@@ -148,8 +162,10 @@ export function createEffectHandle(
       setParam(compressor.release, parameters.release, context, immediate);
       setParam(compressor.knee, parameters.knee, context, immediate);
     }
+    creative?.update(parameters, immediate);
 
-    const fullWet = effect.type === "equalizer" || effect.type === "compressor";
+    const fullWet = effect.type === "equalizer" || effect.type === "compressor" ||
+      effect.type === "noise-gate" || effect.type === "limiter";
     const mix = parameters.mix ?? 1;
     setParam(wet.gain, enabled ? (fullWet ? 1 : mix) : 0, context, immediate);
     setParam(dry.gain, enabled ? (fullWet ? 0 : 1 - mix) : 1, context, immediate);
@@ -164,6 +180,11 @@ export function createEffectHandle(
     output,
     update: (effect) => update(effect),
     dispose() {
+      if (disposed) return;
+      disposed = true;
+      retireTimers.forEach(clearTimeout);
+      retireTimers.clear();
+      creative?.dispose();
       input.disconnect();
       output.disconnect();
       dry.disconnect();

@@ -11,6 +11,9 @@ import { beatToSeconds } from "./time";
 import { encodeAudioBufferWav } from "./wav";
 import { getClipWindow, getSessionDuration } from "./timeline";
 import { createMidiEnvelopePlan, midiPitchToFrequency } from "./midi";
+import { instrumentIsAvailable, getInstrumentId } from "@shared/instrument-library";
+import { instrumentReleaseTail, scheduleInstrumentVoice } from "./instrument-voice";
+import { hasNativePlugins, renderNativeSessionBuffer } from "./native-render";
 
 const exportSampleRate = 48_000;
 const maximumExportSeconds = 10 * 60;
@@ -19,6 +22,19 @@ export async function renderSessionWav(
   session: SongSession,
   getAudio: (assetId: string) => Promise<AudioBuffer>,
 ): Promise<Uint8Array> {
+  return encodeAudioBufferWav(hasNativePlugins(session)
+    ? (await renderNativeSessionBuffer(session, getAudio)).audio
+    : await renderBuiltinSessionBuffer(session, getAudio));
+}
+
+export async function renderBuiltinSessionBuffer(
+  session: SongSession,
+  getAudio: (assetId: string) => Promise<AudioBuffer>,
+): Promise<AudioBuffer> {
+  // Bypassing an assigned VST3 instrument means silence, not an unexpected
+  // fallback to a different builtin sound. Removing the assignment restores it.
+  session = { ...session, tracks: session.tracks.map(track =>
+    track.nativeInstrument ? { ...track, notes: [] } : track) };
   const duration = getSessionDuration(session);
   if (duration <= 0) throw new Error("Add audio or MIDI notes before exporting a song.");
   if (duration > maximumExportSeconds) {
@@ -26,6 +42,11 @@ export async function renderSessionWav(
   }
   if (session.tracks.some((track) => track.type === "unsupported" && track.notes.length > 0)) {
     throw new Error("A MIDI track uses an unsupported instrument type. Its notes were kept; recover the track before exporting.");
+  }
+  for (const track of session.tracks) {
+    if (track.type === "instrument" && track.notes.length && !instrumentIsAvailable(track.instrument)) {
+      throw new Error(`Instrument "${getInstrumentId(track.instrument)}" is unavailable. MIDI and settings were kept; choose a replacement before export.`);
+    }
   }
   const sampleEvents = session.tracks.flatMap((track) =>
     track.notes.flatMap((note) => {
@@ -56,6 +77,11 @@ export async function renderSessionWav(
     }
   }));
   let sampleEnd = duration;
+  for (const track of session.tracks) {
+    if (track.type === "instrument") for (const note of track.notes) {
+      sampleEnd = Math.max(sampleEnd, beatToSeconds(note.startBeat + note.durationBeats, session.tempo, session.timeSignature) + instrumentReleaseTail(track.instrument));
+    }
+  }
   for (const { note, trigger } of sampleEvents) {
     const buffer = audio.get(trigger.assetId);
     if (!buffer) continue;
@@ -69,7 +95,10 @@ export async function renderSessionWav(
   )) || (session.buses ?? []).some((bus) => bus.effects.some((effect) =>
     effect.enabled && (effect.type === "reverb" || effect.type === "delay"),
   ));
-  const tailSeconds = hasTail ? 4 : 0;
+  const hasModulationTail = [...session.masterEffects, ...session.tracks.flatMap(track => track.effects),
+    ...(session.buses ?? []).flatMap(bus => bus.effects)]
+    .some(effect => effect.enabled && (effect.type === "chorus" || effect.type === "flanger" || effect.type === "phaser"));
+  const tailSeconds = hasTail ? 4 : hasModulationTail ? .5 : 0;
   const exportDuration = Math.max(duration, sampleEnd);
   if (exportDuration + tailSeconds > maximumExportSeconds) {
     throw new Error("WAV export including sample and effect tails is limited to 10 minutes.");
@@ -155,7 +184,7 @@ export async function renderSessionWav(
   graphs.forEach((graph) => graph.dispose());
   busGraphs.forEach((graph) => graph.dispose());
   master.dispose();
-  return encodeAudioBufferWav(rendered);
+  return rendered;
 }
 
 function scheduleOfflineNote(
@@ -173,23 +202,7 @@ function scheduleOfflineNote(
     session.timeSignature,
   );
   if (end <= start) return;
-  const oscillator = context.createOscillator();
-  const envelope = context.createGain();
-  oscillator.type = track.instrument.waveform;
-  oscillator.frequency.value = midiPitchToFrequency(note.pitch);
-  const envelopePlan = createMidiEnvelopePlan(note, track.instrument, end - start);
-  envelope.gain.setValueAtTime(envelopePlan.initialValue, start);
-  for (const event of envelopePlan.events) {
-    if (event.curve === "set") {
-      envelope.gain.setValueAtTime(event.value, start + event.timeSeconds);
-    } else {
-      envelope.gain.linearRampToValueAtTime(event.value, start + event.timeSeconds);
-    }
-  }
-  oscillator.connect(envelope);
-  envelope.connect(destination);
-  oscillator.start(start);
-  oscillator.stop(end + 0.01);
+  scheduleInstrumentVoice(context, destination, track.instrument, note, { when: start, duration: end - start });
 }
 
 function scheduleOfflineSample(
@@ -211,7 +224,7 @@ function scheduleOfflineSample(
   source.start(start);
 }
 
-function scheduleOfflineMetronome(
+export function scheduleOfflineMetronome(
   context: OfflineAudioContext,
   session: SongSession,
   destination: AudioNode,
