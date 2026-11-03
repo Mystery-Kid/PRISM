@@ -3,3 +3,4 @@
 - [Desktop theme verification](desktop-theme-verification.md) — Windows CI may default to reduced motion; native screenshots need compositor settling after DOM changes.
 - [Instrument sound compatibility](instrument-sound-compatibility.md) — saved engine IDs freeze their sound; use new versioned IDs for future sonic changes, not silent reinterpretation.
 - [Desktop persistence verification](desktop-persistence-verification.md) — await saved control values before comparing state; immediate UI changes can precede debounced disk writes.
+- [Derived audio history](derived-audio-history.md) — snapshot decoded, serialized media metadata before committing an undoable audio transformation.
