@@ -7,6 +7,7 @@ import {
   createInstrumentState,
   findInstrumentDefinition,
   getInstrumentId,
+  instrumentIsAvailable,
   instrumentParameterValue,
   LEGACY_INSTRUMENT_ID,
   unavailableInstrumentCategories,
@@ -276,7 +277,7 @@ export function InstrumentBrowser({ track, onChange, onPreview, onAssetsChanged 
             <small>{track?.type === "unsupported" ? "Choose a sound to replace the active track type. Original recovery data stays attached." : currentDefinition?.description ?? "Classic waveform oscillator with editable envelope."}</small>
           </div>
           <button className="ib-button ib-preview" type="button" data-testid="button-instrument-preview"
-            disabled={!track || track.type === "unsupported"} onClick={() => track && onPreview(track.id, track.type === "sampler" ? track.sampler?.rootNote ?? 60 : track.type === "drum" ? track.drumKit?.pads[0]?.note ?? 36 : 60)}>
+            disabled={!track || track.type === "unsupported" || (track.type === "instrument" && !instrumentIsAvailable(track.instrument))} onClick={() => track && onPreview(track.id, track.type === "sampler" ? track.sampler?.rootNote ?? 60 : track.type === "drum" ? track.drumKit?.pads[0]?.note ?? 36 : 60)}>
             <Play size={13} fill="currentColor" /> Preview
           </button>
         </div>

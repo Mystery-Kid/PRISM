@@ -157,7 +157,8 @@ export async function verifyInstalledInstruments(window: BrowserWindow, director
     await evaluate(`assert($('instrument-browser').textContent.includes('Missing instrument'),'Missing instrument was advertised as available');
       input('input-instrument-preset-name','A missing sound must not save');
       await pause(60);
-      assert($('button-instrument-preview').disabled&&$('button-instrument-preset-save').disabled,'Missing instrument has misleading active controls');`);
+      assert($('button-instrument-preview').disabled,'Missing instrument preview remains enabled');
+      assert($('button-instrument-preset-save').disabled,'Missing instrument preset save remains enabled');`);
     await choose("prism.synth.analog.v1");
   }
   await evaluate(`
