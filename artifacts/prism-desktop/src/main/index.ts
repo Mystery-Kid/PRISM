@@ -49,6 +49,7 @@ import {
 import { normalizeEffectChain } from "../shared/effect-definitions";
 import { normalizeInstrumentPreset } from "../shared/instrument-presets";
 import { installFactoryDrums } from "./factory-drums";
+import { storeTempoMedia } from "./tempo-media";
 import { validateInstrumentTrackState } from "../shared/instrument-tracks";
 import { validateAudioRouting } from "../shared/audio-routing";
 import { validateMidiArrangement } from "../shared/midi-arrangement";
@@ -114,7 +115,7 @@ let closeApproved = false;
 const activeRecordings = new Map<string, ActiveRecording>();
 
 function emptyLibrary(): ProjectLibrary {
-  return { version: 7, releases: [], sessions: [], assets: [], effectPresets: [], instrumentPresets: [] };
+  return { version: 8, releases: [], sessions: [], assets: [], effectPresets: [], instrumentPresets: [] };
 }
 
 async function persistLibrary(): Promise<void> {
@@ -772,6 +773,11 @@ function registerIpcHandlers(): void {
         track.clips.some(
           (clip: AudioClip) =>
             !getLibrary().assets.some((asset) => asset.id === clip.assetId) ||
+            (clip.tempoAdaptation !== undefined && (
+              clip.tempoAdaptation.algorithm !== "prism-wsola-v1" ||
+              !getLibrary().assets.some(asset => asset.id === clip.tempoAdaptation?.originalAssetId) ||
+              !Number.isFinite(clip.tempoAdaptation.originalTempo) || clip.tempoAdaptation.originalTempo < 20 ||
+              !Number.isFinite(clip.tempoAdaptation.lengthRatio) || clip.tempoAdaptation.lengthRatio < .5 || clip.tempoAdaptation.lengthRatio > 2)) ||
             !Number.isFinite(clip.startSeconds) ||
             clip.startSeconds < 0 ||
             !Number.isFinite(clip.durationSeconds) ||
@@ -807,7 +813,7 @@ function registerIpcHandlers(): void {
       buses: busesWithValidatedEffects,
       masterEffects,
       title: cleanTitle(updated.title),
-      tempo: Math.min(300, Math.max(20, Math.round(updated.tempo))),
+      tempo: Math.min(300, Math.max(20, updated.tempo)),
       masterVolume: Math.min(1.5, Math.max(0, updated.masterVolume)),
       updatedAt: new Date().toISOString(),
     };
@@ -816,6 +822,13 @@ function registerIpcHandlers(): void {
     getRelease(saved.releaseId).updatedAt = saved.updatedAt;
     await persistLibrary();
     return saved;
+  });
+  let tempoMediaBusy = false;
+  handle("prism:audio:tempo-media", async (_event, media) => {
+    if (tempoMediaBusy || activeRecordings.size) throw new Error("Finish the current media operation before adapting tempo.");
+    tempoMediaBusy = true;
+    try { await storeTempoMedia(getLibrary(), assetDirectory, media, persistLibrary); }
+    finally { tempoMediaBusy = false; }
   });
   handle("prism:effects:presets:list", async (_event, projectId: string) => {
     getRelease(projectId);

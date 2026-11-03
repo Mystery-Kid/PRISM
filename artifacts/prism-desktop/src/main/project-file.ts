@@ -21,7 +21,10 @@ function referencedAssets(release: Release, session: SongSession): Set<string> {
   const ids = new Set<string>();
   if (release.artworkAssetId) ids.add(release.artworkAssetId);
   for (const track of session.tracks) {
-    track.clips.forEach((clip) => ids.add(clip.assetId));
+    track.clips.forEach((clip) => {
+      ids.add(clip.assetId);
+      if (clip.tempoAdaptation) ids.add(clip.tempoAdaptation.originalAssetId);
+    });
     if (track.sampler?.sampleAssetId) ids.add(track.sampler.sampleAssetId);
     track.drumKit?.pads.forEach((pad) => {
       if (pad.sampleAssetId) ids.add(pad.sampleAssetId);
@@ -59,7 +62,7 @@ export async function saveProjectFile(
     media.push({ ...asset, data: (await readFile(file)).toString("base64") });
   }
   const library: ProjectLibrary = {
-    version: 7,
+    version: 8,
     instrumentPresets: [],
     releases: [release],
     sessions: [structuredClone(session)],
@@ -126,7 +129,10 @@ export async function importProjectFile(
   const mediaId = (id: string | null) => id ? remapped.get(id) ?? id : null;
   release.artworkAssetId = mediaId(release.artworkAssetId);
   for (const track of session.tracks) {
-    track.clips.forEach((clip) => { clip.assetId = mediaId(clip.assetId)!; });
+    track.clips.forEach((clip) => {
+      clip.assetId = mediaId(clip.assetId)!;
+      if (clip.tempoAdaptation) clip.tempoAdaptation.originalAssetId = mediaId(clip.tempoAdaptation.originalAssetId)!;
+    });
     if (track.sampler) track.sampler.sampleAssetId = mediaId(track.sampler.sampleAssetId);
     track.drumKit?.pads.forEach((pad) => { pad.sampleAssetId = mediaId(pad.sampleAssetId); });
   }

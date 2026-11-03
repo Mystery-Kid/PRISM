@@ -1,0 +1,215 @@
+.tempo-dialog-backdrop {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  padding: 24px;
+  background: color-mix(in srgb, var(--theme-bg, #111316) 72%, transparent);
+  backdrop-filter: blur(7px);
+}
+
+.tempo-dialog {
+  --tempo-dialog-bg: var(--theme-panel, #191c20);
+  --tempo-dialog-raised: var(--theme-panel-raised, #22262b);
+  --tempo-dialog-line: var(--theme-line, #353a40);
+  --tempo-dialog-soft-line: var(--theme-line-soft, #292e33);
+  --tempo-dialog-text: var(--theme-text, #e7e4dd);
+  --tempo-dialog-muted: var(--theme-muted, #a5a6a6);
+  --tempo-dialog-subtle: var(--theme-subtle, #797d80);
+  --tempo-dialog-accent: var(--theme-accent, #d9b77f);
+  width: min(620px, 100%);
+  max-height: min(820px, calc(100dvh - 48px));
+  overflow: auto;
+  padding: clamp(20px, 4vw, 32px);
+  border: 1px solid var(--tempo-dialog-line);
+  border-radius: 14px;
+  color: var(--tempo-dialog-text);
+  background:
+    linear-gradient(125deg, color-mix(in srgb, var(--tempo-dialog-accent) 7%, transparent), transparent 40%),
+    var(--tempo-dialog-bg);
+  box-shadow: 0 28px 90px #0008, 0 1px 0 color-mix(in srgb, var(--tempo-dialog-text) 8%, transparent) inset;
+  font-family: inherit;
+}
+
+.tempo-dialog-header { margin-bottom: 23px; }
+
+.tempo-dialog-kicker,
+.tempo-dialog-method-label {
+  color: var(--tempo-dialog-accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.tempo-dialog-header h2 {
+  max-width: 510px;
+  margin: 11px 0 8px;
+  font-size: clamp(21px, 4vw, 29px);
+  font-weight: 650;
+  letter-spacing: -.045em;
+  line-height: 1.12;
+}
+
+.tempo-dialog-header > p {
+  margin: 0;
+  color: var(--tempo-dialog-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.tempo-dialog-options {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tempo-dialog-option {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--tempo-dialog-line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--tempo-dialog-raised) 76%, transparent);
+}
+
+.tempo-dialog-option-adapt { border-color: color-mix(in srgb, var(--tempo-dialog-accent) 36%, var(--tempo-dialog-line)); }
+
+.tempo-dialog-option-index {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid var(--tempo-dialog-line);
+  border-radius: 6px;
+  color: var(--tempo-dialog-accent);
+  font: 11px ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.tempo-dialog-option-copy h3,
+.tempo-dialog-unsupported h3 {
+  margin: 0 0 5px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.tempo-dialog-option-copy p,
+.tempo-dialog-method p,
+.tempo-dialog-unsupported p,
+.tempo-dialog-unsupported li {
+  margin: 0;
+  color: var(--tempo-dialog-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.tempo-dialog-method {
+  display: grid;
+  gap: 6px;
+  padding: 13px 14px;
+  border-left: 2px solid var(--tempo-dialog-accent);
+  background: color-mix(in srgb, var(--tempo-dialog-raised) 54%, transparent);
+}
+
+.tempo-dialog-method-label { font-size: 9px; }
+
+.tempo-dialog-unsupported {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--tempo-dialog-soft-line);
+  border-radius: 8px;
+}
+
+.tempo-dialog-unsupported h3 {
+  margin-bottom: 5px;
+  color: var(--tempo-dialog-text);
+  font-size: 11px;
+}
+
+.tempo-dialog-unsupported ul { display: grid; gap: 4px; margin: 0; padding-left: 18px; }
+.tempo-dialog-range-note { margin: 10px 0 0; color: var(--tempo-dialog-muted); font-size: 11px; line-height: 1.45; }
+
+.tempo-dialog-progress,
+.tempo-dialog-error {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--tempo-dialog-accent) 42%, var(--tempo-dialog-line));
+  border-radius: 7px;
+  color: var(--tempo-dialog-text);
+  background: color-mix(in srgb, var(--tempo-dialog-accent) 9%, var(--tempo-dialog-bg));
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.tempo-dialog-progress-mark {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--tempo-dialog-accent);
+  animation: tempo-dialog-pulse 1.4s ease-in-out infinite;
+}
+
+.tempo-dialog-error {
+  display: block;
+  border-color: color-mix(in srgb, #d8796c 45%, var(--tempo-dialog-line));
+  color: var(--tempo-dialog-text);
+  background: color-mix(in srgb, #a84238 15%, var(--tempo-dialog-bg));
+}
+
+.tempo-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--tempo-dialog-soft-line);
+}
+
+.tempo-dialog-button {
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid var(--tempo-dialog-line);
+  border-radius: 6px;
+  color: var(--tempo-dialog-text);
+  background: var(--tempo-dialog-raised);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tempo-dialog-button:hover:not(:disabled) { filter: brightness(1.12); }
+.tempo-dialog-button-cancel { margin-right: auto; color: var(--tempo-dialog-muted); background: transparent; }
+.tempo-dialog-button-primary {
+  color: color-mix(in srgb, var(--theme-bg, #111316) 92%, #000);
+  border-color: var(--tempo-dialog-accent);
+  background: var(--tempo-dialog-accent);
+}
+.tempo-dialog-button:disabled { opacity: .46; cursor: not-allowed; }
+.tempo-dialog button:focus-visible { outline: 2px solid var(--tempo-dialog-accent); outline-offset: 3px; }
+
+@keyframes tempo-dialog-pulse {
+  50% { opacity: .35; }
+}
+
+@media (max-width: 560px) {
+  .tempo-dialog-backdrop { place-items: start center; padding: 12px; }
+  .tempo-dialog { max-height: calc(100dvh - 24px); padding: 19px; border-radius: 11px; }
+  .tempo-dialog-actions { display: grid; grid-template-columns: 1fr; }
+  .tempo-dialog-button-cancel { order: 3; margin: 0; }
+  .tempo-dialog-button-primary { order: 1; }
+  .tempo-dialog-button-quiet { order: 2; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tempo-dialog-progress-mark { animation: none; }
+}

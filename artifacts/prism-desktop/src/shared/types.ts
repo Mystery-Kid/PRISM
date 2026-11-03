@@ -32,6 +32,12 @@ export type AudioClip = {
   fadeInSeconds: number;
   fadeOutSeconds: number;
   waveform: number[];
+  tempoAdaptation?: {
+    algorithm: "prism-wsola-v1";
+    originalAssetId: string;
+    originalTempo: number;
+    lengthRatio: number;
+  };
 };
 
 export type TrackType = "audio" | "instrument" | "sampler" | "drum" | "unsupported";
@@ -285,6 +291,7 @@ export type AppBridge = {
   deleteSong(sessionId: string): Promise<void>;
   reorderSongs(releaseId: string, songIds: string[]): Promise<Release>;
   saveSession(session: SongSession): Promise<SongSession>;
+  storeTempoMedia(media: import("./tempo").TempoMedia[]): Promise<void>;
   listEffectPresets(projectId: string): Promise<EffectChainPreset[]>;
   saveEffectPreset(preset: Omit<EffectChainPreset, "createdAt" | "updatedAt">): Promise<EffectChainPreset>;
   deleteEffectPreset(presetId: string, projectId: string): Promise<void>;

@@ -45,6 +45,7 @@ const bridge: AppBridge = {
     ipcRenderer.invoke("prism:songs:reorder", releaseId, songIds),
   saveSession: (session: SongSession) =>
     ipcRenderer.invoke("prism:sessions:save", session),
+  storeTempoMedia: (media) => ipcRenderer.invoke("prism:audio:tempo-media", media),
   listEffectPresets: (projectId: string) =>
     ipcRenderer.invoke("prism:effects:presets:list", projectId),
   saveEffectPreset: (preset: Omit<EffectChainPreset, "createdAt" | "updatedAt">) =>
