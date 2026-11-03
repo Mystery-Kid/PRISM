@@ -40,7 +40,7 @@ const assetStorageNamePattern =
 export type StoredAsset = ProjectAsset & { storageName: string };
 
 export type ProjectLibrary = {
-  version: 7;
+  version: 8;
   releases: Release[];
   sessions: SongSession[];
   assets: StoredAsset[];
@@ -97,7 +97,7 @@ export function migrateProjectLibrary(value: unknown): ProjectLibrary {
   const source = record(value);
   const version = Number(source.version);
   if (
-    ![1, 2, 3, 4, 5, 6, 7].includes(version) ||
+    ![1, 2, 3, 4, 5, 6, 7, 8].includes(version) ||
     !Array.isArray(source.releases) ||
     !Array.isArray(source.sessions) ||
     (source.assets !== undefined && !Array.isArray(source.assets)) ||
@@ -194,7 +194,7 @@ export function migrateProjectLibrary(value: unknown): ProjectLibrary {
   }
   const instrumentPresets = Array.isArray(source.instrumentPresets)
     ? source.instrumentPresets.map(normalizeInstrumentPreset) : [];
-  return { ...source, version: 7, releases, sessions, assets, effectPresets, instrumentPresets } as ProjectLibrary;
+  return { ...source, version: 8, releases, sessions, assets, effectPresets, instrumentPresets } as ProjectLibrary;
 }
 
 function migrateEffects(value: unknown): EffectState[] {
@@ -242,6 +242,12 @@ function migrateBus(value: unknown, index: number): AudioBus {
 
 function migrateClip(value: unknown): AudioClip | null {
   const clip = record(value);
+  const adaptation = record(clip.tempoAdaptation);
+  if (clip.tempoAdaptation !== undefined && (adaptation.algorithm !== "prism-wsola-v1" ||
+      typeof adaptation.originalAssetId !== "string" || !adaptation.originalAssetId ||
+      typeof adaptation.originalTempo !== "number" || !Number.isFinite(adaptation.originalTempo) || adaptation.originalTempo < 20 ||
+      typeof adaptation.lengthRatio !== "number" || !Number.isFinite(adaptation.lengthRatio) || adaptation.lengthRatio < .5 || adaptation.lengthRatio > 2))
+    throw new Error("A tempo-adapted audio reference is damaged. Original project data was not changed.");
   if (
     typeof clip.id !== "string" ||
     typeof clip.assetId !== "string" ||
@@ -267,6 +273,10 @@ function migrateClip(value: unknown): AudioClip | null {
     fadeInSeconds: Math.max(0, finite(clip.fadeInSeconds, 0)),
     fadeOutSeconds: Math.max(0, finite(clip.fadeOutSeconds, 0)),
     waveform,
+    ...(clip.tempoAdaptation !== undefined ? { tempoAdaptation: {
+      algorithm: "prism-wsola-v1" as const, originalAssetId: adaptation.originalAssetId as string,
+      originalTempo: adaptation.originalTempo as number, lengthRatio: adaptation.lengthRatio as number,
+    } } : {}),
   };
 }
 
@@ -523,7 +533,7 @@ export function migrateSongSession(value: unknown): SongSession {
     id: session.id,
     releaseId: session.releaseId,
     title: session.title,
-    tempo: Math.min(300, Math.max(20, Math.round(finite(session.tempo, 120)))),
+    tempo: Math.min(300, Math.max(20, finite(session.tempo, 120))),
     timeSignature: typeof session.timeSignature === "string" ? session.timeSignature : "4/4",
     songKey: isSongKey(session.songKey) ? { ...session.songKey } : null,
     midiView: {

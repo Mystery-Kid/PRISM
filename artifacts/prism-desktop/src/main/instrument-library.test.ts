@@ -19,7 +19,7 @@ const project = (instrument: unknown) => migrateProjectLibrary({ version: 5, ass
 test("legacy oscillator fields remain exact while the library upgrades safely", () => {
   const legacy = { waveform: "triangle", attack: .02, decay: .2, sustain: .6, release: .3 };
   const library = project(legacy);
-  assert.equal(library.version, 7);
+  assert.equal(library.version, 8);
   assert.deepEqual(library.sessions[0].tracks[0].instrument, legacy);
   assert.deepEqual(library.instrumentPresets, []);
 });

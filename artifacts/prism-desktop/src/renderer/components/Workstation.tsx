@@ -44,6 +44,9 @@ import { RoutingPanel } from "./RoutingPanel";
 import { SamplerPanel } from "./SamplerPanel";
 import { DrumPanel } from "./DrumPanel";
 import { InstrumentBrowser } from "./InstrumentBrowser";
+import { TempoChangeDialog } from "./TempoChangeDialog";
+import { adaptSessionTempo } from "../audio/adapt-tempo";
+import { applyTempoChange, isTempo } from "@shared/tempo";
 import { PianoRollSurface } from "./PianoRollSurface";
 import { SongKeyControls, SONG_KEY_ROOT_NAMES as rootNames } from "./SongKeyControls";
 import { ShortcutsDialog } from "./ShortcutsDialog";
@@ -111,6 +114,11 @@ type EditTool = "select" | "draw" | "erase" | "split";
 
 export function Workstation({ session: initialSession, releaseTitle, onBack, onHome, onSettings, onNewProject, onOpenProject }: WorkstationProps) {
   const [session, setSession] = useState(initialSession);
+  const [tempoDraft, setTempoDraft] = useState(String(initialSession.tempo));
+  const [pendingTempo, setPendingTempo] = useState<number | null>(null);
+  const [tempoProgress, setTempoProgress] = useState("");
+  const [tempoError, setTempoError] = useState("");
+  const tempoOperation = useRef<AbortController | null>(null);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
   const [saveError, setSaveError] = useState("");
   const [engineError, setEngineError] = useState("");
@@ -175,11 +183,11 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const history = useRef(createSessionHistory(initialSession));
   const commandExecutor = useRef<(commandId: ShortcutCommandId) => void>(() => {});
   const shortcutStateRef = useRef({
-    bindings: shortcutBindings, panel, activeEditor, dialogOpen: shortcutDialogOpen,
+    bindings: shortcutBindings, panel, activeEditor, dialogOpen: shortcutDialogOpen || pendingTempo !== null,
     menuOpen: openCommandMenu, topMenuOpen: openTopMenu, contextMenu,
   });
   shortcutStateRef.current = {
-    bindings: shortcutBindings, panel, activeEditor, dialogOpen: shortcutDialogOpen,
+    bindings: shortcutBindings, panel, activeEditor, dialogOpen: shortcutDialogOpen || pendingTempo !== null,
     menuOpen: openCommandMenu, topMenuOpen: openTopMenu, contextMenu,
   };
   const platform = getShortcutPlatform(navigator.platform || navigator.userAgent);
@@ -461,6 +469,53 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     setEngineError("");
     try { await task(); } catch (cause) {
       setEngineError(cause instanceof Error ? cause.message : "The audio operation failed.");
+    }
+  };
+  useEffect(() => { setTempoDraft(String(session.tempo)); }, [session.tempo]);
+  useEffect(() => () => tempoOperation.current?.abort(), []);
+  const requestTempoChange = () => {
+    const value = Number(tempoDraft);
+    if (!isTempo(value) || recording || busy) { setTempoDraft(String(session.tempo)); return; }
+    if (value !== session.tempo) { setTempoError(""); setPendingTempo(value); }
+  };
+  const cancelTempoChange = () => {
+    tempoOperation.current?.abort();
+    tempoOperation.current = null;
+    setPendingTempo(null); setTempoDraft(String(session.tempo)); setTempoProgress(""); setBusy("");
+  };
+  const confirmTempoChange = async (adapt: boolean) => {
+    if (pendingTempo === null || recording || busy || !engine) return;
+    const controller = new AbortController(); tempoOperation.current = controller;
+    const before = session, wasPlaying = engine.snapshot().status === "playing";
+    const position = engine.pause();
+    setBusy("tempo"); setTempoError("");
+    try {
+      let next = applyTempoChange(before, pendingTempo);
+      let skipped: string[] = [];
+      if (adapt) {
+        const result = await adaptSessionTempo(before, pendingTempo, engine, controller.signal, setTempoProgress);
+        if (controller.signal.aborted) return;
+        setTempoProgress("Saving derivative audio…");
+        await window.prism.storeTempoMedia(result.media);
+        if (controller.signal.aborted) return;
+        next = result.session; skipped = result.skipped;
+      }
+      // Explicit transaction boundaries: a tempo edit must not merge with the prior edit.
+      history.current = recordSessionSnapshot(history.current, before, historyLimit);
+      history.current = recordSessionSnapshot(history.current, next, historyLimit);
+      setHistoryAvailability(sessionHistoryAvailability(history.current));
+      setSession(next); setPendingTempo(null); setTempoDraft(String(next.tempo));
+      engine.updateSession(next);
+      const target = adapt ? position * before.tempo / next.tempo : position;
+      engine.seek(target);
+      if (wasPlaying) await engine.start(next, target).catch(error => setEngineError(String(error)));
+      setNotice(skipped.length ? `Tempo changed. ${skipped.join(" ")}` : adapt
+        ? "Tempo and compatible audio adapted. Original files are unchanged; Undo restores the previous state."
+        : "Tempo changed. Audio speed and duration are unchanged.");
+    } catch (error) {
+      if (!controller.signal.aborted) setTempoError(error instanceof Error ? error.message : "Tempo adaptation failed. No tempo change was applied.");
+    } finally {
+      if (tempoOperation.current === controller) { tempoOperation.current = null; setBusy(""); setTempoProgress(""); }
     }
   };
   const addMidiNote = (trackId: string, pitch: number, durationBeats = 1) => {
@@ -1618,7 +1673,10 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         <span className="transport-position" data-testid="status-playhead">{labelTime(snapshot.position)}</span>
       </div>
       <div className="transport-settings">
-        <label className="tempo-control"><span>Tempo</span><input data-testid="input-tempo" aria-label="Tempo in beats per minute" type="number" min={20} max={300} value={session.tempo} onChange={(event) => { const value = Number(event.target.value); if (value >= 20 && value <= 300) setSession((current) => ({ ...current, tempo: value })); }} /><small>BPM</small></label>
+        <label className="tempo-control"><span>Tempo</span><input data-testid="input-tempo" aria-label="Tempo in beats per minute" type="number" min={20} max={300} disabled={recording || !!busy} value={tempoDraft} onChange={(event) => setTempoDraft(event.target.value)} onBlur={requestTempoChange} onKeyDown={(event) => {
+          if (event.key === "Enter") { event.preventDefault(); requestTempoChange(); }
+          if (event.key === "Escape") { setTempoDraft(String(session.tempo)); event.currentTarget.blur(); }
+        }} /><small>BPM</small></label>
         <label className="meter-select"><span>Meter</span><select data-testid="select-time-signature" value={session.timeSignature} onChange={(event) => setSession((current) => ({ ...current, timeSignature: event.target.value }))}>{["4/4", "3/4", "6/8", "5/4", "7/8"].map((meter) => <option key={meter}>{meter}</option>)}</select></label>
         <button className={`icon-button compact ${session.metronomeEnabled ? "is-active" : ""}`} data-testid="button-metronome" title="Toggle metronome" aria-pressed={session.metronomeEnabled} onClick={() => setSession((current) => ({ ...current, metronomeEnabled: !current.metronomeEnabled }))}><AudioLines size={16} /></button>
         <button className={`button button-subtle loop-button ${session.loopRange?.enabled ? "active" : ""}`} data-testid="button-loop" aria-pressed={Boolean(session.loopRange?.enabled)} onClick={toggleLoop}>Loop</button>
@@ -1972,6 +2030,14 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         }}>Delete</button>
       </div>
     </div>}
+    {pendingTempo !== null && <TempoChangeDialog fromTempo={session.tempo} toTempo={pendingTempo}
+      busy={busy === "tempo"} progress={tempoProgress} error={tempoError}
+      unsupported={[
+        "Sampler/drum one-shot lengths stay unchanged; their MIDI triggers follow BPM.",
+        "Delay time and modulation rates are currently free-running, not tempo-synced.",
+        ...session.tracks.filter(track => track.type === "unsupported").map(track => `${track.name}: unsupported source; audio timing will be kept.`),
+      ]}
+      onTempoOnly={() => void confirmTempoChange(false)} onAdapt={() => void confirmTempoChange(true)} onCancel={cancelTempoChange} />}
     {shortcutDialogOpen && <ShortcutsDialog bindings={shortcutBindings} platform={platform} onApply={applyShortcutProfile} onClose={() => setShortcutDialogOpen(false)} />}
   </main>;
 }
