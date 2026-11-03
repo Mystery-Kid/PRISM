@@ -499,6 +499,21 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         await window.prism.storeTempoMedia(result.media);
         if (controller.signal.aborted) return;
         next = result.session; skipped = result.skipped;
+        // Decode the saved PCM16 derivatives before committing history. Peaks measured
+        // before WAV quantization differ from decoded peaks; treating that hydration
+        // as a later edit would put a same-tempo snapshot ahead of the real Undo.
+        setTempoProgress("Preparing saved audio and waveforms…");
+        for (const media of result.media) {
+          const buffer = await engine.loadAudio(media.id);
+          if (controller.signal.aborted) return;
+          const peaks = computeWaveformPeaks(Array.from({ length: buffer.numberOfChannels },
+            (_, channel) => buffer.getChannelData(channel)));
+          waveformCache.current.set(media.id, { duration: buffer.duration, peaks });
+          next = { ...next, tracks: next.tracks.map(track => ({ ...track, clips: track.clips.map(clip =>
+            clip.assetId !== media.id ? clip : { ...clip, waveform: peaks, sourceDurationSeconds: buffer.duration,
+              durationSeconds: Math.min(clip.durationSeconds, Math.max(0, buffer.duration-clip.sourceStartSeconds)) },
+          ) })) };
+        }
       }
       // Explicit transaction boundaries: a tempo edit must not merge with the prior edit.
       history.current = recordSessionSnapshot(history.current, before, historyLimit);
