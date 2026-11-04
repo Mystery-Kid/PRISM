@@ -161,6 +161,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const [panel, setPanel] = useState<"mixer" | "clip" | "piano" | "sampler" | "drums" | "effects" | "routing" | "devices" | "native">("mixer");
   const [activeEditor, setActiveEditor] = useState<ShortcutContext>("arrangement");
   const [selectedEffectBusId, setSelectedEffectBusId] = useState("");
+  const [nativeEntry, setNativeEntry] = useState<{ kind: "instrument" | "effect"; target: "track" | `bus:${string}` | "master" }>({ kind: "instrument", target: "track" });
   const [notice, setNotice] = useState("");
   const [historyAvailability, setHistoryAvailability] = useState({ canUndo: false, canRedo: false });
   const [shortcutDialogOpen, setShortcutDialogOpen] = useState(false);
@@ -2001,10 +2002,17 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         onUpdateTrackEffects={(trackId, effects) => updateTrack(trackId, { effects })}
         onUpdateBusEffects={(busId, effects) => setSession((current) => ({ ...current, buses: current.buses.map((bus) => bus.id === busId ? { ...bus, effects } : bus) }))}
         onUpdateMasterEffects={(effects) => setSession((current) => ({ ...current, masterEffects: effects }))}
+        onManageNativeEffects={(target) => {
+          setNativeEntry({ kind: "effect", target });
+          setPanel("native");
+          setActiveEditor(activeShortcutContext("native"));
+        }}
         onNotice={setNotice}
       />}
       {panel === "native" && snapshot.recording && <p>Finish recording before changing native plugins.</p>}
       {panel === "native" && !snapshot.recording && <NativePluginManager
+        initialKind={nativeEntry.kind}
+        initialTarget={nativeEntry.target}
         session={session}
         selectedTrack={selectedTrackData}
         setSession={setSession}

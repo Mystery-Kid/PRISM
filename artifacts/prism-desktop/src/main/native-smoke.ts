@@ -7,8 +7,24 @@ export async function verifyInstalledNative(window: BrowserWindow, directory: st
     const checks=await window.__prismNativeChecks(${JSON.stringify(reopen)});
     document.querySelector('.project-item').click();
     await wait(()=>document.querySelector('.workstation'),'workstation');
-    document.querySelector('[data-testid="tab-native"]').click();
-    await wait(()=>document.querySelector('[data-testid="native-plugin-manager"]'),'native panel');
+    for (const target of ['track','master']) {
+      document.querySelector('[data-testid="tab-effects"]').click();
+      await wait(()=>document.querySelector('[data-testid="input-effects-search"]'),'FX browser');
+      const targetSelect=document.querySelector('[data-testid="select-effect-chain-target"]');
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(targetSelect,target);
+      targetSelect.dispatchEvent(new Event('change',{bubbles:true}));
+      const search=document.querySelector('[data-testid="input-effects-search"]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(search,'vst3');
+      search.dispatchEvent(new Event('input',{bubbles:true}));
+      await wait(()=>document.querySelectorAll('.effect-browser-card').length===1,'VST3 search result');
+      const card=document.querySelector('[data-testid="native-format-vst3"]');
+      if(!card || /unavailable/i.test(card.textContent))throw Error('FX browser still incorrectly labels VST3 unavailable');
+      document.querySelector('[data-testid="button-manage-native-effects"]').click();
+      const panel=await wait(()=>document.querySelector('[data-testid="native-plugin-manager"]'),'native panel');
+      if(panel.querySelector('[role="tab"][aria-selected="true"]')?.textContent!=='Effects')throw Error('FX shortcut did not open native Effects');
+      if(panel.querySelector('select[aria-label="Native effect destination"]')?.value!==target)throw Error('FX shortcut lost target '+target);
+    }
+    checks.push('FX browser VST3 search/navigation and track/master target preservation');
     return checks;
   })()`, true);
   await captureThemeScreenshot(window,directory,reopen?"native-reopened":"native-connected");

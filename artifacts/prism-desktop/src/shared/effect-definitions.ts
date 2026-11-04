@@ -118,11 +118,17 @@ export const nativeEffectCatalog: NativeEffectDefinition[] = [
   },
 ];
 
+export const nativePluginFormat = {
+  name: "VST3",
+  description: "Manage VST3 effects in the VST3 tab. Buffered native effects run after this built-in chain.",
+  searchTerms: ["plugin", "plug-in", "vst", "vst3", "native"],
+};
+
 export const unavailablePluginFormats = [
   {
-    name: "VST / VST3",
-    description: "Unavailable — PRISM does not load third-party native plug-ins.",
-    searchTerms: ["plugin", "plug-in", "vst", "vst3", "native"],
+    name: "VST2",
+    description: "Legacy VST2 plug-ins are not supported.",
+    searchTerms: ["plugin", "plug-in", "vst", "vst2"],
   },
 ];
 

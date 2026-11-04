@@ -20,6 +20,7 @@ import {
   effectDefaults,
   isNativeEffectType,
   nativeEffectCatalog,
+  nativePluginFormat,
   normalizeEffectParameters,
   normalizeEffectState,
   unavailablePluginFormats,
@@ -46,6 +47,7 @@ type EffectsPanelProps = {
   onUpdateBusEffects: (busId: string, effects: EffectState[]) => void;
   onUpdateMasterEffects: (effects: EffectState[]) => void;
   onNotice: (message: string) => void;
+  onManageNativeEffects: (target: "track" | `bus:${string}` | "master") => void;
 };
 
 type PresetScope = "global" | "project";
@@ -61,6 +63,7 @@ export function EffectsPanel({
   onUpdateBusEffects,
   onUpdateMasterEffects,
   onNotice,
+  onManageNativeEffects,
 }: EffectsPanelProps) {
   const [target, setTarget] = useState<ChainTarget>("track");
   const [search, setSearch] = useState("");
@@ -116,6 +119,9 @@ export function EffectsPanel({
         .join(" ").toLowerCase().includes(query),
     );
   }, [search]);
+  const showNativePluginFormat = !search.trim() ||
+    [nativePluginFormat.name, nativePluginFormat.description, ...nativePluginFormat.searchTerms]
+      .join(" ").toLowerCase().includes(search.trim().toLowerCase());
 
   const updateChain = (next: EffectState[]) => {
     if (activeTarget === "master") onUpdateMasterEffects(next);
@@ -305,7 +311,13 @@ export function EffectsPanel({
             updateChain([...effects, item]);
           }}><Plus size={12} />Add</button>
         </article>)}
-        {filteredEffects.length === 0 && filteredUnavailable.length === 0 && <p className="effect-browser-empty">No effects match that search.</p>}
+        {showNativePluginFormat && <article className="effect-browser-card" data-testid="native-format-vst3">
+          <div><strong>{nativePluginFormat.name}</strong><small>Separate native FX stage</small><p>{nativePluginFormat.description}</p></div>
+          <button className="button button-subtle" data-testid="button-manage-native-effects" onClick={() =>
+            onManageNativeEffects(activeTarget === "bus" ? `bus:${selectedBus!.id}` : activeTarget)
+          }><ArrowRight size={12} />Manage VST3 effects</button>
+        </article>}
+        {filteredEffects.length === 0 && filteredUnavailable.length === 0 && !showNativePluginFormat && <p className="effect-browser-empty">No effects match that search.</p>}
         {filteredUnavailable.map((format) => <article className="effect-browser-card unavailable" key={format.name}>
           <div><strong>{format.name}</strong><small>Unavailable</small><p>{format.description}</p></div>
         </article>)}
