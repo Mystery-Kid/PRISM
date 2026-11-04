@@ -13,6 +13,8 @@ type NativePluginManagerProps = {
   setSession: React.Dispatch<React.SetStateAction<SongSession>>;
   updateTrack: (trackId: string, update: Partial<Track>) => void;
   onStopPlayback: () => void;
+  initialKind?: "instrument" | "effect";
+  initialTarget?: Target;
 };
 type Target = "track" | `track:${string}` | `bus:${string}` | "master";
 type ParameterMetadata = { parameters: NativeParameterInfo[]; error?: string };
@@ -21,15 +23,15 @@ function errorText(cause: unknown, fallback: string) {
   return cause instanceof Error ? cause.message : fallback;
 }
 
-export function NativePluginManager({ session, selectedTrack, setSession, updateTrack, onStopPlayback }: NativePluginManagerProps) {
+export function NativePluginManager({ session, selectedTrack, setSession, updateTrack, onStopPlayback, initialKind = "instrument", initialTarget = "track" }: NativePluginManagerProps) {
   const [status, setStatus] = useState<NativeHostStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [query, setQuery] = useState("");
-  const [kind, setKind] = useState<"instrument" | "effect">("instrument");
-  const [target, setTarget] = useState<Target>("track");
+  const [kind, setKind] = useState<"instrument" | "effect">(initialKind);
+  const [target, setTarget] = useState<Target>(initialTarget);
   const [replaceAt, setReplaceAt] = useState<number | null>(null);
   const [replaceOwner, setReplaceOwner] = useState<Target | null>(null);
   const [metadata, setMetadata] = useState<Record<string, ParameterMetadata>>({});

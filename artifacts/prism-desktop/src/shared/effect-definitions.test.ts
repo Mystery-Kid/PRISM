@@ -5,6 +5,8 @@ import { createEffectPresetFile, parseEffectPresetFile } from "./effect-presets"
 import {
   effectDefaults,
   nativeEffectCatalog,
+  nativePluginFormat,
+  unavailablePluginFormats,
   normalizeEffectChain,
   normalizeEffectParameters,
   normalizeEffectState,
@@ -38,6 +40,15 @@ test("every pedal bounds invalid parameters and round-trips presets without reus
     assert.equal(reopened.effects[0].enabled, false);
     assert.equal(reopened.effects[0].id, state.id);
   }
+});
+
+test("VST3 is a separate supported native stage, not an unavailable plugin format", () => {
+  assert.equal(nativePluginFormat.name, "VST3");
+  assert.ok(nativePluginFormat.searchTerms.includes("vst3"));
+  assert.match(nativePluginFormat.description, /after this built-in chain/);
+  assert.doesNotMatch(nativePluginFormat.description, /unavailable|does not load/i);
+  assert.ok(unavailablePluginFormats.some(format => format.name === "VST2"));
+  assert.ok(unavailablePluginFormats.every(format => !/vst3/i.test([format.name, format.description, ...format.searchTerms].join(" "))));
 });
 
 test("schema 6 upgrades without changing legacy effects and schema 7 retains all pedal chains", () => {

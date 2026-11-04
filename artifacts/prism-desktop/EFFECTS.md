@@ -40,10 +40,12 @@ effect in the chain.
 
 ## Effect browser
 
-The browser searches the implemented native catalog by effect name, category,
-description, and parameter keywords. It deliberately does not present
-third-party plug-ins as working effects. “VST / VST3” is labeled unavailable,
-not insertable; PRISM currently has no plug-in loader.
+The browser searches the built-in effect catalog by name, category, description,
+and parameter keywords. VST3 has its own card with **Manage VST3 effects**, which
+opens the VST3 manager on Effects and preserves the track, bus or master target.
+Native effects run after that target's built-in chain using buffered processing;
+they are not interleaved with built-in pedals. The VST3 manager reports actual
+host availability and scanning errors. Legacy VST2 remains unsupported.
 
 ## Versioned presets and scope
 
