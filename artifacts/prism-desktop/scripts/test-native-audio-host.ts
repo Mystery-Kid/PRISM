@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import assert from "node:assert/strict";
+async function main(): Promise<void> {
 const executable = process.argv[2];
 assert(executable, "Provide the real compiled native audio host path.");
 const child = spawn(executable, [], { windowsHide: true, stdio: ["pipe", "pipe", "inherit"] });
@@ -41,3 +42,5 @@ try {
   assert.equal(code, 0);
   console.log("Real native host protocol, enumeration contract, missing-device errors and safe close passed. No physical audio claims.");
 } finally { clearTimeout(timeout); child.kill(); }
+}
+void main().catch(error => { console.error(error); process.exitCode = 1; });
