@@ -73,6 +73,10 @@ export class NativeAudioManager {
     });
     // Drain stderr to prevent a child from blocking; do not forward unbounded driver messages.
     child.stderr.resume();
+    child.stdin.on("error", () => {
+      if (this.child !== child) return;
+      this.dispose(); this.lastError = "Native audio command pipe closed unexpectedly.";
+    });
     child.on("error", () => {
       if (this.child !== child) return;
       this.child = null; this.output = ""; this.fail("Native audio host could not start.");
