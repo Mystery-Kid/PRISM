@@ -1,0 +1,9 @@
+/* A panel's old fixed minimum must not override the user's bounded dock size. */
+.workstation .workstation-bottom.effects-open,
+.workstation .workstation-bottom.routing-open,
+.workstation .workstation-bottom.sampler-open,
+.workstation .workstation-bottom.drums-open { min-height: 150px; }
+.workstation .lower-panel-tabs { height: 34px; min-height: 34px; }
+.workstation .track-controls .track-name { max-width: none; }
+.header-resize-grip:focus-visible::after,
+.track-height-grip:focus-visible { background: var(--theme-accent); }

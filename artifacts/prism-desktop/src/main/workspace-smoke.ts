@@ -9,9 +9,10 @@ const helpers = `
     throw new Error('Workspace timeout: '+label);
   };
   const savedLayout = () => JSON.parse(localStorage.getItem('prism.workspace.v1') || 'null');
-  const musical = session => JSON.stringify({
-    ...session, tracks: session.tracks.map(({color,...track})=>track)
-  });
+  const musical = session => {
+    const {updatedAt,tracks,...music}=session;
+    return JSON.stringify({...music,tracks:tracks.map(({color,...track})=>track)});
+  };
   const readSong = async () => {
     const releases = await window.prism.listReleases();
     const release=releases.find(r=>r.title==='Installed app persistence check');

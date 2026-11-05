@@ -11,7 +11,7 @@
 .track-color-popover input { width: 32px; height: 25px; padding: 0; border: 1px solid var(--theme-line); background: transparent; cursor: pointer; }
 .timeline-track-row:has(.track-color-picker[open]) .track-controls { overflow: visible; z-index: 22; }
 .timeline-track-row .track-controls { border-left: 2px solid color-mix(in srgb, var(--track-color) 65%, transparent); }
-.timeline-track-row .audio-clip,
-.timeline-track-row .midi-clip { border-left: 3px solid var(--track-color); }
-.timeline-track-row .audio-clip.selected,
-.timeline-track-row .midi-clip.selected { outline: 1px solid var(--track-color); outline-offset: -1px; }
+html[data-theme] .timeline-track-row .audio-clip,
+html[data-theme] .timeline-track-row .midi-clip { border-left: 3px solid var(--track-color); }
+html[data-theme] .timeline-track-row .audio-clip.selected,
+html[data-theme] .timeline-track-row .midi-clip.selected { outline: 1px solid var(--track-color); outline-offset: -1px; }

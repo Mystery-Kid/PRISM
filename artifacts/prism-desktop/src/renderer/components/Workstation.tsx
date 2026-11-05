@@ -46,6 +46,7 @@ import { SamplerPanel } from "./SamplerPanel";
 import { DrumPanel } from "./DrumPanel";
 import { InstrumentBrowser } from "./InstrumentBrowser";
 import { TrackColorPicker, trackColorPalette } from "./TrackColorPicker";
+import "./workspace-layout.css";
 import { TempoChangeDialog } from "./TempoChangeDialog";
 import { adaptSessionTempo } from "../audio/adapt-tempo";
 import { applyTempoChange, isTempo } from "@shared/tempo";
