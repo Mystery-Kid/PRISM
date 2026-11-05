@@ -3,8 +3,15 @@ name: Approved native plugin architecture
 description: Product approval for buffered VST3 hosting while preserving the current engine.
 ---
 
-Use buffered native plugins and preserve the working Web Audio engine. Do not replace it with a native audio engine.
+Preserve the working Web Audio engine as an explicit compatibility option.
+The user subsequently approved a **staged native realtime engine alongside it**,
+not a wholesale replacement or reinterpretation of saved instrument sounds.
 
-**Why:** The user explicitly chose “Buffered plugins (recommended)” after being told it preserves the current engine but adds buffering latency, whereas a native-engine migration would be broader and riskier.
+**Why:** The original choice was “Buffered plugins (recommended).” After the
+Web Audio/native-callback incompatibility and broader DSP scope were explained,
+the user chose “Staged native engine (recommended).”
 
-**How to apply:** Connect genuine native processing to the existing workstation with explicit buffering/compatibility limits. Do not present this choice as approval for low-latency live MIDI or an engine rewrite.
+**How to apply:** Add native realtime processing incrementally while keeping
+existing projects playable through the compatibility engine. Keep buffered VST3
+and native realtime capabilities distinct. Freeze existing saved engine sounds;
+use new versioned IDs where native sound parity cannot be guaranteed.

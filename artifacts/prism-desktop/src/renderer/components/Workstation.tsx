@@ -307,6 +307,17 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   }, [session]);
 
   useEffect(() => {
+    const pauseCompatibility = () => {
+      if (recording) return; // Main-process IPC also rejects device changes during an active take.
+      engine?.pause();
+      engine?.setMonitoring(false);
+      setMonitoring(false);
+    };
+    window.addEventListener("prism:stop-compatibility-playback", pauseCompatibility);
+    return () => window.removeEventListener("prism:stop-compatibility-playback", pauseCompatibility);
+  }, [engine, recording]);
+
+  useEffect(() => {
     const audio = new AudioEngine((id) => window.prism.assetUrl(id));
     setEngine(audio);
     audio.updateSession(session);

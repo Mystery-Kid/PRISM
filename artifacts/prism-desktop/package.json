@@ -50,13 +50,14 @@
       "PEDALBOARD.md",
       "TEMPO-ADAPTATION.md",
       "NATIVE-VST3.md",
+      "NATIVE-AUDIO.md",
       "package.json"
     ],
     "win": {
       "extraResources": [{
         "from": "../../generated-artifacts/prism-native-runtime",
         "to": "native",
-        "filter": ["prism-vst-host.exe", "notices/*.txt"]
+        "filter": ["prism-vst-host.exe", "prism-audio-host.exe", "notices/*.txt"]
       }],
       "icon": "build/prism.ico",
       "target": [

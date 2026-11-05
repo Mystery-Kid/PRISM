@@ -84,7 +84,31 @@ export async function verifyInstalledWorkspace(window: BrowserWindow, directory:
       assert((await readSong()).tracks.find(t=>t.id==='smoke-instrument').color==='#00c9b0','Reset erased track color');
     `);
     await captureThemeScreenshot(window, directory, "workspace-prism-defaults", 500);
-    return ["actual Electron process-restart layout/theme/color persistence", "panel and collapsed state restoration", "Restore Default Workspace preserves musical content and colors", "restored alignment"];
+    await evaluate(`
+      const before=musical(await readSong());
+      const native=await window.prism.nativeAudioStatus();
+      assert(native.stage==='device-host' && native.protocolVersion===1,'Native device host contract');
+      assert(!native.asioCompiled,'Unlicensed ASIO must not be distributed in this build');
+      assert(!native.active,'Native diagnostic stream auto-opened');
+      assert(!/not included|could not start|timed out|protocol mismatch/i.test(native.error||''),'Packaged native host missing or broken: '+native.error);
+      (await menuItem('edit','Preferences')).click();
+      await wait(()=>$('settings-tab-audio'),'audio preferences tab');
+      $('settings-tab-audio').click();
+      await wait(()=>$('native-audio-host-state'),'queried native device state');
+      assert(!/Native realtime song engine ready/i.test($('native-audio-settings').textContent),'Native project DSP is not implemented yet');
+      const saved=JSON.stringify((await window.prism.nativeAudioStatus()).savedConfiguration);
+      let rejected=false;
+      try { await window.prism.nativeAudioOpen({deviceId:'wasapi:nonexistent-smoke-device',mode:'wasapi-shared',channels:2,sampleRate:48000,bufferFrames:256}); }
+      catch { rejected=true; }
+      assert(rejected,'Missing native device silently fell back');
+      const after=await window.prism.nativeAudioStatus();
+      assert(!after.active && JSON.stringify(after.savedConfiguration)===saved,'Failed open changed settings or opened another device');
+      assert(musical(await readSong())===before,'Native settings changed song data');
+    `);
+    await captureThemeScreenshot(window, directory, "native-audio-preferences", 450);
+    await evaluate(`$('settings-close').click();`);
+    return ["actual Electron process-restart layout/theme/color persistence", "panel and collapsed state restoration", "Restore Default Workspace preserves musical content and colors", "restored alignment",
+      "packaged native device-host IPC and Audio Devices preferences", "missing native device fails without fallback, settings changes or song changes", "ASIO absent from unlicensed public build; no physical device claims"];
   }
   await evaluate(`
     (await menuItem('view','Restore Default Workspace')).click();

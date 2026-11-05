@@ -68,8 +68,9 @@ than deleting that path.
    buffer changes, switching, loss/reconnection, clock drift and underruns.
    A virtual/silent CI device can verify contracts, not physical ASIO acceptance.
 
-Broader realtime DSP work needs the user's engine-scope approval. The current
-upgrade must not be marked fully complete while this gate or physical ASIO
+The user approved this staged parallel native-engine scope. That approval does
+not authorize changing saved sounds or removing the compatibility engine. The
+upgrade must not be marked fully complete while implementation or physical ASIO
 acceptance remains unresolved.
 
 ## Licensing decision and distribution gate
