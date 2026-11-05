@@ -1,3 +1,4 @@
+import { useId, useState } from "react";
 import "./TrackColorPicker.css";
 
 // Individual accents derived from the official segmented color-wheel artwork.
@@ -12,20 +13,27 @@ export const trackColorPalette = [
 export function TrackColorPicker({ color, name, onChange }: {
   color: string; name: string; onChange: (color: string) => void;
 }) {
-  return <details className="track-color-picker" onClick={event => event.stopPropagation()}>
-    <summary className="track-color-choice" title={`Choose color for ${name}`} aria-label={`Choose color for ${name}`} style={{ backgroundColor: color }} />
-    <div className="track-color-popover" role="group" aria-label={`Colors for ${name}`}>
+  const id = useId();
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  return <div className="track-color-picker" onClick={event => event.stopPropagation()}>
+    <button type="button" popoverTarget={id} className="track-color-choice"
+      title={`Choose color for ${name}`} aria-label={`Choose color for ${name}`} style={{ backgroundColor: color }}
+      onClick={event => {
+        const bounds = event.currentTarget.getBoundingClientRect();
+        setPosition({ left: Math.max(8, Math.min(bounds.left, window.innerWidth - 196)), top: Math.max(8, Math.min(bounds.bottom + 6, window.innerHeight - 194)) });
+      }} />
+    <div id={id} popover="auto" className="track-color-popover" role="group" aria-label={`Colors for ${name}`} style={position}>
       <span>Track color</span>
       <div className="track-color-swatches">
         {trackColorPalette.map(swatch => <button type="button" key={swatch.value}
           title={swatch.name} aria-label={`${swatch.name} track color`} aria-pressed={color.toLowerCase() === swatch.value}
           style={{ backgroundColor: swatch.value }} onClick={event => {
             onChange(swatch.value);
-            event.currentTarget.closest("details")?.removeAttribute("open");
+            event.currentTarget.closest<HTMLElement>("[popover]")?.hidePopover();
           }} />)}
       </div>
       <label>Custom color<input aria-label={`Custom color for ${name}`} type="color"
         value={/^#[0-9a-f]{6}$/i.test(color) ? color : "#00c9b0"} onChange={event => onChange(event.target.value)} /></label>
     </div>
-  </details>;
+  </div>;
 }

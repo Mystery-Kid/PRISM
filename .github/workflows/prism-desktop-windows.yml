@@ -60,6 +60,7 @@ jobs:
           pnpm --filter @workspace/prism-desktop run test:tempo
           pnpm --filter @workspace/prism-desktop exec tsx --test src/shared/native-plugins.test.ts
           pnpm --filter @workspace/prism-desktop exec tsx --test src/renderer/workspace-layout.test.ts
+          pnpm --filter @workspace/prism-desktop exec tsx --test src/main/workspace-smoke-data.test.ts
 
       - name: Check audio rendering, effects, and transport
         shell: pwsh

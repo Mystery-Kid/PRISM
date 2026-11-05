@@ -1,5 +1,6 @@
 import type { BrowserWindow } from "electron";
 import { captureThemeScreenshot } from "./theme-smoke";
+import { musicalSnapshot } from "./workspace-smoke-data";
 
 const helpers = `
   const $ = id => document.querySelector('[data-testid="' + id + '"]');
@@ -9,10 +10,7 @@ const helpers = `
     throw new Error('Workspace timeout: '+label);
   };
   const savedLayout = () => JSON.parse(localStorage.getItem('prism.workspace.v1') || 'null');
-  const musical = session => {
-    const {updatedAt,tracks,...music}=session;
-    return JSON.stringify({...music,tracks:tracks.map(({color,...track})=>track)});
-  };
+  const musical = (${musicalSnapshot.toString()});
   const readSong = async () => {
     const releases = await window.prism.listReleases();
     const release=releases.find(r=>r.title==='Installed app persistence check');
@@ -122,7 +120,8 @@ export async function verifyInstalledWorkspace(window: BrowserWindow, directory:
     await wait(()=>savedLayout().trackHeights['smoke-audio']===124,'keyboard track resize');
     geometry();
     const color=document.querySelector('[data-track-id="smoke-instrument"] .track-color-picker');
-    color.open=true;
+    color.querySelector('[popovertarget]').click();
+    await wait(()=>color.querySelector('[popover]').matches(':popover-open'),'visible color popover');
     color.querySelector('button[aria-label="Teal track color"]').click();
     await wait(async()=>(await readSong()).tracks.find(t=>t.id==='smoke-instrument').color==='#00c9b0','saved track color');
     assert((await readSong()).tracks.find(t=>t.id==='smoke-audio').color!=='#00c9b0','Color leaked into another track');

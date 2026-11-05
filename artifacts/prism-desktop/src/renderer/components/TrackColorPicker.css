@@ -1,15 +1,14 @@
 .track-color-picker { position: relative; width: 8px; flex: 0 0 8px; z-index: 8; }
-.track-color-choice { display: block; list-style: none; width: 7px; height: 19px; border: 1px solid #ffffff24; border-radius: 3px; cursor: pointer; }
+.track-color-choice { display: block; padding: 0; min-width: 7px; min-height: 19px; width: 7px; height: 19px; border: 1px solid #ffffff24; border-radius: 3px; cursor: pointer; }
 .track-color-choice::-webkit-details-marker { display: none; }
 .track-color-picker[open] { z-index: 20; }
-.track-color-popover { position: absolute; top: 24px; left: 0; width: 182px; padding: 12px; color: var(--theme-text); background: var(--theme-panel-raised); border: 1px solid var(--theme-line); border-radius: 7px; box-shadow: 0 8px 28px #0006; }
+.track-color-popover { position: fixed; margin: 0; width: 182px; padding: 12px; color: var(--theme-text); background: var(--theme-panel-raised); border: 1px solid var(--theme-line); border-radius: 7px; box-shadow: 0 8px 28px #0006; }
 .track-color-popover > span { display: block; font-size: 11px; font-weight: 600; margin-bottom: 10px; }
 .track-color-swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
 .track-color-swatches button { width: 23px; height: 23px; padding: 0; border: 1px solid #0004; border-radius: 4px; cursor: pointer; }
 .track-color-swatches button[aria-pressed="true"] { outline: 2px solid var(--theme-text); outline-offset: 2px; }
 .track-color-popover label { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; font-size: 10px; color: var(--theme-muted); }
 .track-color-popover input { width: 32px; height: 25px; padding: 0; border: 1px solid var(--theme-line); background: transparent; cursor: pointer; }
-.timeline-track-row:has(.track-color-picker[open]) .track-controls { overflow: visible; z-index: 22; }
 .timeline-track-row .track-controls { border-left: 2px solid color-mix(in srgb, var(--track-color) 65%, transparent); }
 html[data-theme] .timeline-track-row .audio-clip,
 html[data-theme] .timeline-track-row .midi-clip { border-left: 3px solid var(--track-color); }
