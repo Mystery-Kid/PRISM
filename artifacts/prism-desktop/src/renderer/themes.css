@@ -60,6 +60,272 @@ html[data-theme="theme.starry"] {
   --theme-accent-soft: #183537;
 }
 
+/* PRISM — charcoal studio planes with the logo's segmented spectrum as a
+   measured accent, never a full-surface rainbow. */
+html[data-theme="theme.prism"] {
+  color-scheme: dark;
+  --bg: #101113;
+  --panel: #17191c;
+  --panel-raised: #202327;
+  --panel-hover: #292d32;
+  --line: #34383d;
+  --line-soft: #272a2f;
+  --text: #e7e8e9;
+  --muted: #a2a5a8;
+  --subtle: #777d82;
+  --accent: #f07869;
+  --accent-soft: #392522;
+  --blue: #67b8dc;
+  --green: #77c69a;
+  --red: #ef756c;
+  --theme-bg: #101113;
+  --theme-panel: #17191c;
+  --theme-panel-raised: #202327;
+  --theme-panel-inset: #121416;
+  --theme-line: #34383d;
+  --theme-line-soft: #272a2f;
+  --theme-text: #e7e8e9;
+  --theme-muted: #a2a5a8;
+  --theme-subtle: #777d82;
+  --theme-accent: #f07869;
+  --theme-accent-soft: #392522;
+  --prism-red: #f07869;
+  --prism-orange: #e9a05b;
+  --prism-yellow: #d9bf62;
+  --prism-green: #77c69a;
+  --prism-cyan: #65c4bd;
+  --prism-blue: #67b8dc;
+  --prism-violet: #ad91d4;
+  background: var(--theme-bg);
+  color: var(--theme-text);
+}
+
+html[data-theme="theme.prism"] body,
+html[data-theme="theme.prism"] #root { background: var(--theme-bg); color: var(--theme-text); }
+html[data-theme="theme.prism"] .app-header { color: var(--theme-text); background: #151719f2; border-color: #ffffff12; }
+html[data-theme="theme.prism"] .library-page,
+html[data-theme="theme.prism"] .release-page,
+html[data-theme="theme.prism"] .workstation { color: var(--theme-text); background: var(--theme-bg); }
+html[data-theme="theme.prism"] .workstation-header,
+html[data-theme="theme.prism"] .transport-bar,
+html[data-theme="theme.prism"] .arrangement-toolbar,
+html[data-theme="theme.prism"] .lower-panel,
+html[data-theme="theme.prism"] .workstation-bottom,
+html[data-theme="theme.prism"] .workstation .piano-tools,
+html[data-theme="theme.prism"] .workstation .instrument-panel-wrap {
+  background-color: #17191c;
+  border-color: #303439;
+}
+html[data-theme="theme.prism"] .timeline-scroll { background-color: #111315; }
+html[data-theme="theme.prism"] .timeline-lane,
+html[data-theme="theme.prism"] .piano-grid { background-color: #141619; }
+html[data-theme="theme.prism"] .timeline-lane {
+  background-image: repeating-linear-gradient(90deg, transparent 0 95px, #cbd2d508 95px 96px);
+}
+html[data-theme="theme.prism"] .timeline-ruler-row,
+html[data-theme="theme.prism"] .track-column-heading,
+html[data-theme="theme.prism"] .track-controls,
+html[data-theme="theme.prism"] .piano-keyboard-column,
+html[data-theme="theme.prism"] .piano-ruler-viewport {
+  color: #adb2b6;
+  background-color: #1b1e21;
+  border-color: #33373c;
+}
+html[data-theme="theme.prism"] .timeline-track-row,
+html[data-theme="theme.prism"] .arrangement-footer,
+html[data-theme="theme.prism"] .lower-panel-tabs,
+html[data-theme="theme.prism"] .mixer-channel,
+html[data-theme="theme.prism"] .piano-roll-layout { border-color: #303439; }
+html[data-theme="theme.prism"] .track-selected .track-controls { background: #292324; }
+html[data-theme="theme.prism"] .lane-gridline,
+html[data-theme="theme.prism"] .ruler-mark { border-color: #373b40; }
+html[data-theme="theme.prism"] .ruler-mark span,
+html[data-theme="theme.prism"] .panel-label,
+html[data-theme="theme.prism"] .track-column-heading,
+html[data-theme="theme.prism"] .arrangement-footer,
+html[data-theme="theme.prism"] .timeline-empty,
+html[data-theme="theme.prism"] .zoom-control,
+html[data-theme="theme.prism"] .transport-settings,
+html[data-theme="theme.prism"] .track-kind,
+html[data-theme="theme.prism"] .track-level > span,
+html[data-theme="theme.prism"] .track-pan > span { color: var(--theme-muted); }
+html[data-theme="theme.prism"] .nav-item { color: #a1a5a8; }
+html[data-theme="theme.prism"] .nav-item.active {
+  color: #f1eeee; background: #252729; box-shadow: inset 0 -1px var(--prism-red);
+}
+html[data-theme="theme.prism"] .nav-item:hover,
+html[data-theme="theme.prism"] .icon-button:hover,
+html[data-theme="theme.prism"] .transport-button:hover { color: #f1eeee; background: #292c2f; border-color: #3c4044; }
+html[data-theme="theme.prism"] .button-primary,
+html[data-theme="theme.prism"] .transport-play { color: #211412; background: var(--prism-red); }
+html[data-theme="theme.prism"] .button-primary:hover:not(:disabled),
+html[data-theme="theme.prism"] .transport-play:hover { background: #f58c7f; }
+html[data-theme="theme.prism"] .button-quiet,
+html[data-theme="theme.prism"] .button-subtle,
+html[data-theme="theme.prism"] .transport-button,
+html[data-theme="theme.prism"] .track-toggle,
+html[data-theme="theme.prism"] .show-lower-panel,
+html[data-theme="theme.prism"] .instrument-button-quiet,
+html[data-theme="theme.prism"] .instrument-icon-button,
+html[data-theme="theme.prism"] .drum-assign-button,
+html[data-theme="theme.prism"] .drum-clear-button,
+html[data-theme="theme.prism"] .rp-icon-button,
+html[data-theme="theme.prism"] .rp-empty-action {
+  color: #c3c6c8; border-color: #393d42; background: #202327;
+}
+html[data-theme="theme.prism"] .button-quiet:hover:not(:disabled),
+html[data-theme="theme.prism"] .button-subtle:hover:not(:disabled),
+html[data-theme="theme.prism"] .instrument-button-quiet:hover:not(:disabled),
+html[data-theme="theme.prism"] .rp-icon-button:hover { color: #f0f1f1; background: #2a2d31; }
+html[data-theme="theme.prism"] .search-field,
+html[data-theme="theme.prism"] .select-wrap select,
+html[data-theme="theme.prism"] .tempo-control input,
+html[data-theme="theme.prism"] .meter-select select,
+html[data-theme="theme.prism"] .loop-bound input,
+html[data-theme="theme.prism"] .clip-inspector input,
+html[data-theme="theme.prism"] .piano-tools input,
+html[data-theme="theme.prism"] .piano-tools select,
+html[data-theme="theme.prism"] .devices-panel select,
+html[data-theme="theme.prism"] .effect-search,
+html[data-theme="theme.prism"] .effect-search input,
+html[data-theme="theme.prism"] .song-settings-popover,
+html[data-theme="theme.prism"] .song-settings-popover select,
+html[data-theme="theme.prism"] .form-field input,
+html[data-theme="theme.prism"] .form-field textarea,
+html[data-theme="theme.prism"] .form-field select,
+html[data-theme="theme.prism"] .shortcuts-search {
+  color: var(--theme-text); border-color: #393d42; background-color: #121416;
+}
+html[data-theme="theme.prism"] input::placeholder,
+html[data-theme="theme.prism"] textarea::placeholder { color: #777e83; }
+html[data-theme="theme.prism"] .audio-clip { border-color: #4c8390; background: #20353a; color: #c5e6ea; }
+html[data-theme="theme.prism"] .audio-clip.selected { border-color: var(--prism-cyan); box-shadow: 0 0 0 1px #65c4bd40; }
+html[data-theme="theme.prism"] .waveform path { stroke: var(--prism-cyan); }
+html[data-theme="theme.prism"] .waveform-baseline { stroke: #b8d6d426; }
+html[data-theme="theme.prism"] .clip-duration { color: #83c6c1; }
+html[data-theme="theme.prism"] .midi-clip { color: #c6ebdc; border-color: #4d977d; background: #234337; }
+html[data-theme="theme.prism"] .midi-clip-notes i { background: var(--prism-green); }
+html[data-theme="theme.prism"] .playhead,
+html[data-theme="theme.prism"] .playhead > span { background: var(--prism-red); }
+html[data-theme="theme.prism"] .track-toggle.active { color: #f08b83; border-color: #80524e; background: #382523; }
+html[data-theme="theme.prism"] .track-toggle.solo-active,
+html[data-theme="theme.prism"] .loop-button.active,
+html[data-theme="theme.prism"] .icon-button.is-active { color: var(--prism-yellow); border-color: #756640; background: #302c20; }
+html[data-theme="theme.prism"] .lower-tab { color: #9da2a5; }
+html[data-theme="theme.prism"] .lower-tab:hover { color: #e3e5e6; }
+html[data-theme="theme.prism"] .lower-tab.active,
+html[data-theme="theme.prism"] .piano-tools .midi-view-toggle.active { color: #f3a198; border-bottom-color: var(--prism-red); }
+html[data-theme="theme.prism"] .mixer-meter { border-color: #34393d; background: repeating-linear-gradient(90deg, #202529 0 12px, #292f33 12px 13px); }
+html[data-theme="theme.prism"] .mixer-meter > i { background: #cbd3d0; }
+html[data-theme="theme.prism"] .midi-note,
+html[data-theme="theme.prism"] .piano-note { color: #d8f1e7; border-color: #69a98d; background: #3b795f; }
+html[data-theme="theme.prism"] .midi-note.selected,
+html[data-theme="theme.prism"] .piano-note.selected { border-color: var(--prism-yellow); background: #887442; }
+html[data-theme="theme.prism"] .piano-time-content,
+html[data-theme="theme.prism"] .piano-grid {
+  background-image: repeating-linear-gradient(90deg, transparent 0 calc(var(--piano-beat-width, 54px) - 1px), #d0d5d20e calc(var(--piano-beat-width, 54px) - 1px) var(--piano-beat-width, 54px));
+}
+html[data-theme="theme.prism"] .piano-time-content > .piano-row { background-color: #171a1d; border-color: #25292c; }
+html[data-theme="theme.prism"] .piano-time-content > .piano-row.scale-inside { background-color: #1b2924; }
+html[data-theme="theme.prism"] .piano-time-content > .piano-row.scale-outside { background-color: #131619; }
+html[data-theme="theme.prism"] .piano-time-content > .piano-row.black-key-row { background-color: #1b1e21; }
+html[data-theme="theme.prism"] .piano-row span,
+html[data-theme="theme.prism"] .piano-keyboard-corner { color: #adb3b6; background: #1d2023; }
+html[data-theme="theme.prism"] .piano-key { color: #c6cbcd; background: #303438; border-color: #41464a; }
+html[data-theme="theme.prism"] .piano-key.black { color: #d9dcdd; background: #16181a; }
+html[data-theme="theme.prism"] .scale-guide-legend,
+html[data-theme="theme.prism"] .piano-key-row.scale-inside .piano-key::after { color: var(--prism-cyan); }
+html[data-theme="theme.prism"] .piano-hint { color: #dce0e1; background: #202427ed; border: 1px solid #3a4044; }
+html[data-theme="theme.prism"] .prism-instrument-panel,
+html[data-theme="theme.prism"] .drum-panel,
+html[data-theme="theme.prism"] .routing-panel {
+  color: var(--theme-text); border-color: #34393d; background-color: #181b1e;
+}
+html[data-theme="theme.prism"] .prism-instrument-panel {
+  --instrument-bg: #181b1e; --instrument-surface: #212529; --instrument-inset: #121517;
+  --instrument-line: #363c40; --instrument-line-soft: #292e32; --instrument-text: #e4e7e7;
+  --instrument-muted: #a4abad; --instrument-dim: #7d878b; --instrument-accent: #65c4bd;
+  --instrument-accent-ink: #10201f;
+}
+html[data-theme="theme.prism"] .drum-panel { --instrument-bg: #181b1e; --instrument-accent: #65c4bd; --instrument-accent-ink: #10201f; }
+html[data-theme="theme.prism"] .native-manager {
+  --native-ink: #e1e4e5;
+  --native-muted: #a1a8ab;
+  --native-line: #373d41;
+  --native-surface: #202428;
+  --native-accent: #65c4bd;
+  color: var(--native-ink);
+}
+html[data-theme="theme.prism"] .native-library,
+html[data-theme="theme.prism"] .native-assignments,
+html[data-theme="theme.prism"] .native-plugin-card { border-color: #373d41; background: #1b1f22; }
+html[data-theme="theme.prism"] .native-search,
+html[data-theme="theme.prism"] .native-parameter input,
+html[data-theme="theme.prism"] .native-parameter select { color: #e1e4e5; border-color: #393f43; background: #121517; }
+html[data-theme="theme.prism"] .native-manager button:focus-visible { outline-color: var(--prism-cyan); }
+html[data-theme="theme.prism"] .drum-pad-list,
+html[data-theme="theme.prism"] .drum-pattern-editor,
+html[data-theme="theme.prism"] .sampler-workspace,
+html[data-theme="theme.prism"] .sample-assignment,
+html[data-theme="theme.prism"] .rp-empty-buses,
+html[data-theme="theme.prism"] .rp-empty-tracks { color: #c5cacc; border-color: #363b40; background-color: #202428; }
+html[data-theme="theme.prism"] .drum-pad-name-field input,
+html[data-theme="theme.prism"] .drum-pad-note-field input,
+html[data-theme="theme.prism"] .drum-pattern-toolbar select,
+html[data-theme="theme.prism"] .drum-pattern-toolbar input,
+html[data-theme="theme.prism"] .instrument-field input,
+html[data-theme="theme.prism"] .instrument-field select,
+html[data-theme="theme.prism"] .rp-bus input,
+html[data-theme="theme.prism"] .rp-bus select,
+html[data-theme="theme.prism"] .shortcut-change input { color: #e2e5e6; border-color: #393e42; background: #121517; }
+html[data-theme="theme.prism"] .rp-bus,
+html[data-theme="theme.prism"] .rp-track,
+html[data-theme="theme.prism"] .effect-unit,
+html[data-theme="theme.prism"] .effect-browser-card,
+html[data-theme="theme.prism"] .effect-preset-card { color: #d2d6d7; border-color: #343a3e; background-color: #1c2023; }
+html[data-theme="theme.prism"] .top-menu-surface,
+html[data-theme="theme.prism"] .track-add-options,
+html[data-theme="theme.prism"] .context-menu,
+html[data-theme="theme.prism"] .song-settings-popover,
+html[data-theme="theme.prism"] .workstation-command-menu,
+html[data-theme="theme.prism"] .workstation-context-menu {
+  color: #dfe2e3; border-color: #3a4044; background: #1b1e21; box-shadow: 0 14px 36px #0008;
+}
+html[data-theme="theme.prism"] .top-menu-item,
+html[data-theme="theme.prism"] .track-add-options button,
+html[data-theme="theme.prism"] .context-menu button,
+html[data-theme="theme.prism"] .workstation-command-menu button,
+html[data-theme="theme.prism"] .workstation-context-menu button { color: #d3d7d8; }
+html[data-theme="theme.prism"] .top-menu-item:hover:not(:disabled),
+html[data-theme="theme.prism"] .track-add-options button:hover,
+html[data-theme="theme.prism"] .context-menu button:hover,
+html[data-theme="theme.prism"] .workstation-command-menu button:hover:not(:disabled),
+html[data-theme="theme.prism"] .workstation-context-menu button:hover { color: #f0f1f1; background: #2b2f33; }
+html[data-theme="theme.prism"] .modal-backdrop { background: #050607a8; }
+html[data-theme="theme.prism"] .modal-panel,
+html[data-theme="theme.prism"] .shortcuts-dialog,
+html[data-theme="theme.prism"] .settings-modal { color: #e2e5e6; border-color: #3a3f43; background: #1a1d20; box-shadow: 0 24px 72px #0009; }
+html[data-theme="theme.prism"] .appearance-theme,
+html[data-theme="theme.prism"] .shop-product { color: #d7dadb; border-color: #34393d; background: #1a1d20; }
+html[data-theme="theme.prism"] .appearance-theme.selected { border-color: #e27b6c; background: #282120; }
+html[data-theme="theme.prism"] .appearance-theme-info p,
+html[data-theme="theme.prism"] .appearance-claimed { color: #a2a8aa; }
+html[data-theme="theme.prism"] .current-tag { color: #f4a398; background: #3a2522; }
+html[data-theme="theme.prism"] .shop-page,
+html[data-theme="theme.prism"] .shop-message { color: #e0e3e4; }
+html[data-theme="theme.prism"] button:focus-visible,
+html[data-theme="theme.prism"] input:focus-visible,
+html[data-theme="theme.prism"] textarea:focus-visible,
+html[data-theme="theme.prism"] select:focus-visible,
+html[data-theme="theme.prism"] [tabindex]:focus-visible { outline-color: var(--prism-cyan); }
+html[data-theme="theme.prism"] ::selection { color: #241613; background: #ef8b7d; }
+html[data-theme="theme.prism"] .appearance-preview-fallback {
+  width: 93px; height: 59px; flex: 0 0 auto; border-radius: 4px; border: 1px solid #ffffff20;
+  background:
+    linear-gradient(90deg, var(--prism-red) 0 14.2%, var(--prism-orange) 14.2% 28.4%, var(--prism-yellow) 28.4% 42.6%, var(--prism-green) 42.6% 56.8%, var(--prism-cyan) 56.8% 71%, var(--prism-blue) 71% 85.2%, var(--prism-violet) 85.2%) top / 100% 3px no-repeat,
+    linear-gradient(145deg, #222629, #111315 70%);
+}
+
 html, body, #root { background-color: var(--bg); }
 #root { position: relative; isolation: isolate; }
 .theme-app-content { position: relative; z-index: 1; width: 100%; height: 100%; }
@@ -121,6 +387,10 @@ html[data-theme] .effect-preset-card,
 html[data-theme] .rp-bus,
 html[data-theme] .rp-empty-buses,
 html[data-theme] .rp-empty-tracks,
+html[data-theme] .native-manager,
+html[data-theme] .native-library,
+html[data-theme] .native-assignments,
+html[data-theme] .native-plugin-card,
 html[data-theme] input,
 html[data-theme] select,
 html[data-theme] textarea,

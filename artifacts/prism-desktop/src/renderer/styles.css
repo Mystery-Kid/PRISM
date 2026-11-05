@@ -1,12 +1,12 @@
 
 :root {
   color-scheme: dark;
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-family: "Avenir Next", "Segoe UI Variable", "Trebuchet MS", sans-serif;
   color: #e7e4dd;
   background: #111316;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --font-display: "Avenir Next", "Segoe UI", sans-serif;
+  --font-display: "Avenir Next", "Segoe UI Variable", "Trebuchet MS", sans-serif;
   --font-mono: "SFMono-Regular", Consolas, monospace;
   --bg: #111316;
   --panel: #191c20;
@@ -54,7 +54,7 @@ button:disabled { opacity: .38; cursor: not-allowed !important; }
 .brand-lockup { display: flex; align-items: center; gap: 8px; min-width: 112px; }
 .prism-logo { width: 30px; height: 30px; flex: 0 0 auto; object-fit: contain; }
 .brand-word, .mini-brand b {
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-display);
   font-size: 17px;
   letter-spacing: .2em;
   font-weight: 700;

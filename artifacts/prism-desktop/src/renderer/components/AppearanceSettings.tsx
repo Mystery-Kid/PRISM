@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Check, LoaderCircle, RotateCw } from "lucide-react";
-import { BUILT_IN_THEME_IDS, DAY_ID, ORIGINAL_ID, STARRY_ID } from "@shared/themes";
+import { BUILT_IN_THEME_IDS, DAY_ID, ORIGINAL_ID, PRISM_ID, STARRY_ID } from "@shared/themes";
 import { useThemes } from "../themes/ThemeProvider";
 import starryPreview from "../assets/starry-moon.png";
 import originalPreview from "../assets/original-preview.svg";
@@ -29,6 +29,7 @@ export function AppearanceSettings() {
   if (!state) return <div className="theme-load-error" role="alert"><p>{error || "Appearance settings are unavailable."}</p><button className="button button-quiet" onClick={() => void reload()}><RotateCw size={14} /> Retry</button></div>;
   const knownThemes = [
     { id: ORIGINAL_ID, name: "Original", description: "PRISM's familiar neutral studio palette.", preview: originalPreview },
+    { id: PRISM_ID, name: "PRISM", description: "Near-black charcoal, with precise accents drawn from the segmented PRISM spectrum.", preview: null as string | null },
     { id: DAY_ID, name: "Day", description: "A clear daylight studio with soft mineral grey and readable teal.", preview: dayPreview },
     { id: STARRY_ID, name: "Starry", description: "Midnight sky, moonlight, and the exact Starry teal accent.", preview: starryPreview },
   ];

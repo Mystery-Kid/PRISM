@@ -6,3 +6,4 @@
 - [Derived audio history](derived-audio-history.md) — snapshot decoded, serialized media metadata before committing an undoable audio transformation.
 - [Native MIDI block compatibility](native-midi-block-compatibility.md) — test notes after silence, not only at frame zero; offline MDA fixtures need MIDI-boundary block splitting.
 - [Native plugin direction](native-plugin-direction.md) — user approved buffered VST3 integration, not a replacement of the working Web Audio engine.
+- [ASIO licensing direction](asio-licensing.md) — prepare the proprietary route; do not change PRISM to GPLv3 or assume a signed agreement.
