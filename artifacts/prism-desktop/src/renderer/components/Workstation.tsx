@@ -45,6 +45,8 @@ import { RoutingPanel } from "./RoutingPanel";
 import { SamplerPanel } from "./SamplerPanel";
 import { DrumPanel } from "./DrumPanel";
 import { InstrumentBrowser } from "./InstrumentBrowser";
+import { TrackColorPicker, trackColorPalette } from "./TrackColorPicker";
+import "./workspace-layout.css";
 import { TempoChangeDialog } from "./TempoChangeDialog";
 import { adaptSessionTempo } from "../audio/adapt-tempo";
 import { applyTempoChange, isTempo } from "@shared/tempo";
@@ -53,6 +55,7 @@ import { SongKeyControls, SONG_KEY_ROOT_NAMES as rootNames } from "./SongKeyCont
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { getAllowedBusTargets, maxAudioBuses } from "@shared/audio-routing";
 import prismLogo from "../assets/prism-logo.png";
+import { boundDockHeight, defaultWorkspace, loadWorkspace, workspaceKey, type WorkspacePanel } from "../workspace-layout";
 import {
   activeShortcutContext,
   commandIsActive,
@@ -96,7 +99,7 @@ type ClipboardEntry =
   | { kind: "audio"; trackId: string; value: AudioClip }
   | { kind: "midi"; trackId: string; value: { clip: MidiClip; notes: MidiNote[] } }
   | { kind: "note"; trackId: string; value: MidiNote };
-const colors = ["#d7a568", "#77a99e", "#a58ac4", "#c77979", "#829fc2"];
+const colors = trackColorPalette.map(swatch => swatch.value);
 const emptySnapshot: AudioEngineSnapshot = {
   status: "stopped",
   error: null,
@@ -134,19 +137,9 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const [dismissedSnapshotError, setDismissedSnapshotError] = useState("");
   const [zoom, setZoom] = useState(1);
   const [snap, setSnap] = useState(true);
-  const [headerWidth, setHeaderWidth] = useState(() => clampLayoutSize(
-    Number(localStorage.getItem("prism.arrangementHeaderWidth")) || DEFAULT_TRACK_HEADER_WIDTH,
-    MIN_TRACK_HEADER_WIDTH,
-    MAX_TRACK_HEADER_WIDTH,
-  ));
-  const [trackHeights, setTrackHeights] = useState<Record<string, number>>(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem("prism.arrangementTrackHeights") ?? "{}") as Record<string, number>;
-      return Object.fromEntries(Object.entries(stored).map(([id, height]) => [
-        id, clampLayoutSize(Number(height), MIN_TRACK_HEIGHT, MAX_TRACK_HEIGHT),
-      ]));
-    } catch { return {}; }
-  });
+  const [initialWorkspace] = useState(() => loadWorkspace(localStorage));
+  const [headerWidth, setHeaderWidth] = useState(initialWorkspace.headerWidth);
+  const [trackHeights, setTrackHeights] = useState(initialWorkspace.trackHeights);
   const smartView = session.midiView?.smartView ?? false;
   const scaleSnap = session.midiView?.scaleSnap ?? false;
   const [inputDevices, setInputDevices] = useState<AudioDevice[]>([]);
@@ -158,7 +151,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const [monitoring, setMonitoring] = useState(false);
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState("");
-  const [panel, setPanel] = useState<"mixer" | "clip" | "piano" | "sampler" | "drums" | "effects" | "routing" | "devices" | "native">("mixer");
+  const [panel, setPanel] = useState<WorkspacePanel>(initialWorkspace.panel);
   const [activeEditor, setActiveEditor] = useState<ShortcutContext>("arrangement");
   const [selectedEffectBusId, setSelectedEffectBusId] = useState("");
   const [nativeEntry, setNativeEntry] = useState<{ kind: "instrument" | "effect"; target: "track" | `bus:${string}` | "master" }>({ kind: "instrument", target: "track" });
@@ -170,8 +163,9 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const [editTool, setEditTool] = useState<EditTool>("select");
   const [openCommandMenu, setOpenCommandMenu] = useState<"edit" | "view" | null>(null);
   const [openTopMenu, setOpenTopMenu] = useState<"File" | "Edit" | "Insert" | "View" | "Transport" | "Help" | null>(null);
-  const [dockHeight, setDockHeight] = useState(() => Number(localStorage.getItem("prism.dockHeight")) || 220);
-  const [inspectorVisible, setInspectorVisible] = useState(() => localStorage.getItem("prism.inspectorVisible") !== "false");
+  const [dockHeight, setDockHeight] = useState(() => boundDockHeight(initialWorkspace.dockHeight, window.innerHeight));
+  const [inspectorVisible, setInspectorVisible] = useState(initialWorkspace.dockVisible);
+  const [workspaceError, setWorkspaceError] = useState("");
   const [clipboard, setClipboard] = useState<ClipboardEntry[]>([]);
   const [version, setVersion] = useState("");
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -182,6 +176,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
   const waveformCache = useRef(new Map<string, { duration: number; peaks: number[] }>());
   const headerResizeRef = useRef<{ x: number; initialWidth: number; width: number } | null>(null);
   const trackResizeRef = useRef<{ id: string; y: number; initialHeight: number; height: number } | null>(null);
+  const dockResizeRef = useRef<{ y: number; height: number } | null>(null);
   const history = useRef(createSessionHistory(initialSession));
   const commandExecutor = useRef<(commandId: ShortcutCommandId) => void>(() => {});
   const shortcutStateRef = useRef({
@@ -241,7 +236,6 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       setSession(initialSession);
       setSelectedTrack(initialSession.tracks[0]?.id ?? "");
     }
-    setPanel("mixer");
     setActiveEditor("arrangement");
     setSelectedClip(null);
     setSelectedMidiClip(null);
@@ -249,6 +243,23 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     setClipboard([]);
     setSnapshot({ ...emptySnapshot });
   }, [initialSession.id]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(workspaceKey, JSON.stringify({
+        version: 1, headerWidth, trackHeights, dockHeight, dockVisible: inspectorVisible, panel,
+      }));
+      setWorkspaceError("");
+    } catch {
+      setWorkspaceError("Workspace preferences could not be saved on this device. Project audio and MIDI are unchanged.");
+    }
+  }, [headerWidth, trackHeights, dockHeight, inspectorVisible, panel]);
+
+  useEffect(() => {
+    const fit = () => setDockHeight(height => boundDockHeight(height, window.innerHeight));
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -294,6 +305,17 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     }, 280);
     return () => window.clearTimeout(timer);
   }, [session]);
+
+  useEffect(() => {
+    const pauseCompatibility = () => {
+      if (recording) return; // Main-process IPC also rejects device changes during an active take.
+      engine?.pause();
+      engine?.setMonitoring(false);
+      setMonitoring(false);
+    };
+    window.addEventListener("prism:stop-compatibility-playback", pauseCompatibility);
+    return () => window.removeEventListener("prism:stop-compatibility-playback", pauseCompatibility);
+  }, [engine, recording]);
 
   useEffect(() => {
     const audio = new AudioEngine((id) => window.prism.assetUrl(id));
@@ -1481,6 +1503,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     pixelsPerSecond,
   };
   const resizeTrackHeader = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.stopPropagation();
     if (event.type === "pointerdown") {
       event.preventDefault();
       headerResizeRef.current = { x: event.clientX, initialWidth: headerWidth, width: headerWidth };
@@ -1496,11 +1519,12 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
     } else if (event.type === "pointerup" || event.type === "pointercancel") {
       const finalWidth = headerResizeRef.current?.width ?? headerWidth;
       headerResizeRef.current = null;
-      localStorage.setItem("prism.arrangementHeaderWidth", String(finalWidth));
+      setHeaderWidth(finalWidth);
       if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     }
   };
   const resizeTrackRow = (trackId: string, event: ReactPointerEvent<HTMLDivElement>) => {
+    event.stopPropagation();
     if (event.type === "pointerdown") {
       event.preventDefault();
       const height = trackHeights[trackId] ?? DEFAULT_TRACK_HEIGHT;
@@ -1516,13 +1540,22 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       setTrackHeights((current) => ({ ...current, [trackId]: next }));
     } else if (event.type === "pointerup" || event.type === "pointercancel") {
       const resized = trackResizeRef.current;
-      if (resized) localStorage.setItem("prism.arrangementTrackHeights", JSON.stringify({
-        ...trackHeights,
-        [resized.id]: resized.height,
-      }));
+      if (resized) setTrackHeights(current => ({ ...current, [resized.id]: resized.height }));
       trackResizeRef.current = null;
       if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     }
+  };
+  const restoreWorkspace = () => {
+    const defaults = defaultWorkspace();
+    setHeaderWidth(defaults.headerWidth);
+    setTrackHeights(defaults.trackHeights);
+    setDockHeight(boundDockHeight(defaults.dockHeight, window.innerHeight));
+    setInspectorVisible(defaults.dockVisible);
+    setPanel(defaults.panel);
+    setActiveEditor("arrangement");
+    setZoom(1);
+    setOpenTopMenu(null);
+    setNotice("Default workspace restored. Audio, MIDI, clips, routing, and track colors are unchanged.");
   };
   const toggleLoop = () => setSession((current) => ({
     ...current,
@@ -1552,6 +1585,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       return;
     }
     if (action === "preferences") { onSettings(); setOpenTopMenu(null); return; }
+    if (action === "view.restoreWorkspace") { restoreWorkspace(); return; }
     if (action === "about") { setNotice(`PRISM${version ? ` ${version}` : ""} · Offline music workstation`); setOpenTopMenu(null); return; }
     executeCommand(action as ShortcutCommandId);
   };
@@ -1602,6 +1636,8 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       { label: "Zoom Out", command: "view.zoomOut" },
       { label: "Reset Zoom", command: "view.zoomReset" },
       { label: "Fit Project / Selection", command: "view.fit", disabled: !["arrangement", "piano"].includes(activeEditor) },
+      { separator: true, label: "" },
+      { label: "Restore Default Workspace", action: "view.restoreWorkspace" },
     ],
     Transport: [
       { label: snapshot.status === "playing" ? "Pause" : "Play", command: "transport.toggle" },
@@ -1624,7 +1660,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       ? <div key={`separator-${index}`} className="menu-separator" role="separator" />
       : <button key={`${menu}-${item.label}`} type="button" role={item.checked === undefined ? "menuitem" : item.action === "view.inspector" ? "menuitemcheckbox" : "menuitemradio"} aria-checked={item.checked} data-testid={`menuitem-${menu.toLowerCase()}-${index}`} className={`top-menu-item ${item.checked ? "checked" : ""}`} disabled={item.disabled} onClick={() => {
         if (item.action === "view.inspector") {
-          setInspectorVisible((visible) => { const next = !visible; localStorage.setItem("prism.inspectorVisible", String(next)); return next; });
+          setInspectorVisible(visible => !visible);
           setOpenTopMenu(null);
         } else if (item.command) menuAction(item.command);
         else if (item.action) menuAction(item.action);
@@ -1752,7 +1788,12 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
                 <button role="menuitem" data-testid="add-track-sampler" onClick={() => addTrack("sampler")}>Sampler Track</button>
                 <button role="menuitem" data-testid="add-track-bus" disabled={session.buses.length >= maxAudioBuses} title={session.buses.length >= maxAudioBuses ? `Maximum ${maxAudioBuses} buses` : "Create a routable audio bus"} onClick={addBus}>Bus Track</button>
               </div>
-            </details><div className="header-resize-grip" data-testid="track-header-resize" role="separator" aria-label="Resize track header" aria-orientation="vertical" aria-valuenow={headerWidth} onPointerDown={resizeTrackHeader} onPointerMove={resizeTrackHeader} onPointerUp={resizeTrackHeader} onPointerCancel={resizeTrackHeader} /></div>
+            </details><div className="header-resize-grip" data-testid="track-header-resize" role="separator" aria-label="Resize track header" aria-orientation="vertical" aria-valuenow={headerWidth} aria-valuemin={MIN_TRACK_HEADER_WIDTH} aria-valuemax={MAX_TRACK_HEADER_WIDTH} tabIndex={0} onKeyDown={event => {
+              if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                event.preventDefault(); event.stopPropagation();
+                setHeaderWidth(width => clampLayoutSize(width + (event.key === "ArrowRight" ? 12 : -12), MIN_TRACK_HEADER_WIDTH, MAX_TRACK_HEADER_WIDTH));
+              }
+            }} onPointerDown={resizeTrackHeader} onPointerMove={resizeTrackHeader} onPointerUp={resizeTrackHeader} onPointerCancel={resizeTrackHeader} /></div>
             <div className="timeline-ruler" data-testid="timeline-ruler" style={{ width: `${timelineWidth}px` }} onClick={(event) => {
               const bounds = event.currentTarget.getBoundingClientRect();
               seek(clientXToTimelineSeconds(event.clientX, bounds.left, arrangementLayout.pixelsPerSecond));
@@ -1764,9 +1805,9 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
           {session.tracks.map((track, index) => {
             const trackHeight = arrangementLayout.rowHeights[track.id] ?? DEFAULT_TRACK_HEIGHT;
             return <div className={`timeline-track-row ${selectedTrack === track.id ? "track-selected" : ""}`} key={track.id}
-              style={{ gridTemplateColumns: `${arrangementLayout.headerWidth}px ${timelineWidth}px`, height: `${trackHeight}px`, minHeight: `${trackHeight}px` }}>
+              style={{ gridTemplateColumns: `${arrangementLayout.headerWidth}px ${timelineWidth}px`, height: `${trackHeight}px`, minHeight: `${trackHeight}px`, "--track-color": track.color || colors[index % colors.length] } as CSSProperties}>
             <div className="track-controls" data-track-id={track.id}>
-              <span className="track-color" style={{ background: track.color || colors[index % colors.length] }} />
+              <TrackColorPicker name={track.name} color={track.color || colors[index % colors.length]} onChange={color => updateTrack(track.id, { color })} />
               <button className="track-name" data-testid={`button-rename-track-${track.id}`} title="Rename track" onClick={() => { const name = window.prompt("Track name", track.name); if (name?.trim()) updateTrack(track.id, { name: name.trim() }); selectArrangementTrack(track); }}>{track.name}</button>
               <small className="track-kind">{track.type === "instrument" ? "INSTRUMENT" : track.type === "sampler" ? "SAMPLER" : track.type === "drum" ? "DRUM KIT" : track.type === "unsupported" ? "UNSUPPORTED" : "AUDIO"}</small>
               <div className="track-buttons">
@@ -1778,7 +1819,12 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
               <div className="track-meter-wrap"><MeterBar meter={snapshot.meters[track.id]} id={`track-${track.id}`} /><span className="track-db">{snapshot.meters[track.id]?.peak ? `${(20 * Math.log10(snapshot.meters[track.id].peak)).toFixed(1)} dB` : "−∞ dB"}</span></div>
               <label className="track-level"><span>VOL</span><input data-testid={`input-track-volume-${track.id}`} aria-label={`${track.name} volume`} type="range" min="0" max="1.25" step=".01" value={track.volume} onChange={(event) => updateTrack(track.id, { volume: Number(event.target.value) })} /><small>{Math.round(track.volume * 100)}</small></label>
               <label className="track-pan"><span>PAN</span><input data-testid={`input-track-pan-${track.id}`} aria-label={`${track.name} pan`} type="range" min="-1" max="1" step=".01" value={track.pan} onChange={(event) => updateTrack(track.id, { pan: Number(event.target.value) })} /></label>
-              <div className="track-height-grip" data-testid={`track-height-resize-${track.id}`} data-track-id={track.id} role="separator" aria-label={`Resize ${track.name} row`} aria-orientation="horizontal" aria-valuenow={trackHeight} onPointerDown={(event) => resizeTrackRow(track.id, event)} onPointerMove={(event) => resizeTrackRow(track.id, event)} onPointerUp={(event) => resizeTrackRow(track.id, event)} onPointerCancel={(event) => resizeTrackRow(track.id, event)} />
+              <div className="track-height-grip" data-testid={`track-height-resize-${track.id}`} data-track-id={track.id} role="separator" aria-label={`Resize ${track.name} row`} aria-orientation="horizontal" aria-valuenow={trackHeight} aria-valuemin={MIN_TRACK_HEIGHT} aria-valuemax={MAX_TRACK_HEIGHT} tabIndex={0} onKeyDown={event => {
+                if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+                  event.preventDefault(); event.stopPropagation();
+                  setTrackHeights(heights => ({ ...heights, [track.id]: clampLayoutSize((heights[track.id] ?? DEFAULT_TRACK_HEIGHT) + (event.key === "ArrowDown" ? 12 : -12), MIN_TRACK_HEIGHT, MAX_TRACK_HEIGHT) }));
+                }
+              }} onPointerDown={(event) => resizeTrackRow(track.id, event)} onPointerMove={(event) => resizeTrackRow(track.id, event)} onPointerUp={(event) => resizeTrackRow(track.id, event)} onPointerCancel={(event) => resizeTrackRow(track.id, event)} />
             </div>
             <div className={`timeline-lane tool-${editTool}`} data-testid={`timeline-lane-${track.id}`} data-track-id={track.id} onClick={(event) => {
               if ((event.target as HTMLElement).closest(".audio-clip, .midi-clip, .midi-note")) return;
@@ -1830,25 +1876,22 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
       <div className="arrangement-footer"><span>{session.tracks.length} {session.tracks.length === 1 ? "track" : "tracks"}</span><span>Local project audio · {session.timeSignature} · {session.tempo} BPM</span></div>
     </section>
 
-    {inspectorVisible && <div className="dock-resize-handle" role="separator" aria-label="Resize lower dock" aria-orientation="horizontal" aria-valuenow={dockHeight} tabIndex={0} onKeyDown={(event) => {
+    {workspaceError && <div className="workstation-notice error-notice" role="alert">{workspaceError}</div>}
+    {inspectorVisible && <div className="dock-resize-handle" data-testid="dock-resize" role="separator" aria-label="Resize lower dock" aria-orientation="horizontal" aria-valuenow={dockHeight} aria-valuemin={150} aria-valuemax={boundDockHeight(900, window.innerHeight)} tabIndex={0} onKeyDown={(event) => {
       if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-        const next = clamp(dockHeight + (event.key === "ArrowUp" ? 12 : -12), 150, Math.floor(window.innerHeight * 0.65));
-        setDockHeight(next); localStorage.setItem("prism.dockHeight", String(next)); event.preventDefault();
+        setDockHeight(boundDockHeight(dockHeight + (event.key === "ArrowUp" ? 12 : -12), window.innerHeight)); event.preventDefault();
       }
     }} onPointerDown={(event) => {
+      event.preventDefault(); event.stopPropagation();
+      dockResizeRef.current = { y: event.clientY, height: dockHeight };
       event.currentTarget.setPointerCapture(event.pointerId);
-      (event.currentTarget as HTMLElement).dataset.dragY = String(event.clientY);
-      (event.currentTarget as HTMLElement).dataset.dragHeight = String(dockHeight);
     }} onPointerMove={(event) => {
-      const element = event.currentTarget as HTMLElement;
-      if (!element.hasPointerCapture(event.pointerId)) return;
-      const startY = Number(element.dataset.dragY);
-      const startHeight = Number(element.dataset.dragHeight);
-      setDockHeight(clamp(startHeight + startY - event.clientY, 150, Math.floor(window.innerHeight * 0.65)));
+      if (!event.currentTarget.hasPointerCapture(event.pointerId) || !dockResizeRef.current) return;
+      setDockHeight(boundDockHeight(dockResizeRef.current.height + dockResizeRef.current.y - event.clientY, window.innerHeight));
     }} onPointerUp={(event) => {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-      localStorage.setItem("prism.dockHeight", String(dockHeight));
-    }} />}
+      dockResizeRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    }} onPointerCancel={() => { dockResizeRef.current = null; }} />}
     {inspectorVisible ? <section className={`workstation-bottom ${panel === "effects" ? "effects-open" : ""} ${panel === "routing" ? "routing-open" : ""} ${panel === "sampler" ? "sampler-open" : ""} ${panel === "drums" ? "drums-open" : ""}`} style={{ flexBasis: `${dockHeight}px` }} onPointerDown={() => setActiveEditor(activeShortcutContext(panel))}>
       <nav className="lower-panel-tabs" aria-label="Workstation panels">
         {(["mixer", "clip", "piano", "sampler", "drums", "effects", "routing", "devices", "native"] as const).map((tab) => <button key={tab} className={`lower-tab ${panel === tab ? "active" : ""}`} data-testid={`tab-${tab}`} onClick={() => { if (tab === "effects") setSelectedEffectBusId(""); setPanel(tab); setActiveEditor(activeShortcutContext(tab)); }}>{tab === "mixer" ? <SlidersHorizontal size={13} /> : tab === "clip" ? <AudioLines size={13} /> : tab === "piano" || tab === "drums" ? <Music2 size={13} /> : tab === "sampler" || tab === "routing" ? <AudioLines size={13} /> : tab === "effects" ? <Sparkles size={13} /> : tab === "native" ? <PlugZap size={13} /> : <Headphones size={13} />}{tab === "clip" ? "Clip" : tab === "devices" ? "I/O" : tab === "native" ? "VST3" : tab[0].toUpperCase() + tab.slice(1)}</button>)}
@@ -2041,7 +2084,7 @@ export function Workstation({ session: initialSession, releaseTitle, onBack, onH
         </div>
         <div className="recording-hint" data-testid="status-recording-setup">Input monitoring can produce feedback or delay; headphones are recommended. {session.tracks.some((track) => track.recordArmed) ? "An audio track is armed. Press Record to capture input." : "Arm an audio track with R in the track header before recording."}</div>
       </div>}
-    </section> : <button className="show-lower-panel" onClick={() => { setInspectorVisible(true); localStorage.setItem("prism.inspectorVisible", "true"); }}><PanelBottom size={13} /> Show dock</button>}
+    </section> : <button className="show-lower-panel" data-testid="show-dock" onClick={() => setInspectorVisible(true)}><PanelBottom size={13} /> Show dock</button>}
     {contextMenu && <div className="workstation-context-backdrop" data-testid="workstation-context-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setContextMenu(null); }}>
       <div className="workstation-context-menu" role="menu" data-testid="workstation-context-menu" style={{ left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - 190)), top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 160)) }} onContextMenu={(event) => event.preventDefault()}>
         <span className="context-menu-heading">{contextMenu.kind === "clip" ? "Audio clip" : contextMenu.kind === "midiClip" ? "MIDI clip" : "MIDI note"}</span>

@@ -10,6 +10,12 @@ import type {
 } from "@shared/types";
 
 const bridge: AppBridge = {
+  nativeAudioStatus: (refresh) => ipcRenderer.invoke("prism:native-audio:status", refresh),
+  nativeAudioProbe: (configuration) => ipcRenderer.invoke("prism:native-audio:probe", configuration),
+  nativeAudioOpen: (configuration) => ipcRenderer.invoke("prism:native-audio:open", configuration),
+  nativeAudioClose: () => ipcRenderer.invoke("prism:native-audio:close"),
+  nativeAudioTestTone: () => ipcRenderer.invoke("prism:native-audio:test-tone"),
+  nativeAudioControlPanel: (deviceId) => ipcRenderer.invoke("prism:native-audio:control-panel", deviceId),
   nativePluginStatus: () => ipcRenderer.invoke("prism:native:status"),
   addNativePluginFolder: () => ipcRenderer.invoke("prism:native:add-folder"),
   scanNativePlugins: () => ipcRenderer.invoke("prism:native:scan"),

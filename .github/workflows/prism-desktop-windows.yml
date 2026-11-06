@@ -30,6 +30,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --filter @workspace/prism-desktop...
 
+      - name: Stamp increasing Windows test-build version
+        shell: pwsh
+        run: |
+          $packagePath = "artifacts/prism-desktop/package.json"
+          $package = Get-Content $packagePath -Raw | ConvertFrom-Json
+          $parts = $package.version.Split(".")
+          $version = "$($parts[0]).$($parts[1]).$env:GITHUB_RUN_NUMBER"
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid Windows build version: $version" }
+          node -e "const fs=require('node:fs');const p=process.argv[1];const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version=process.argv[2];fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')" $packagePath $version
+          if ($LASTEXITCODE -ne 0) { throw "Could not stamp the package version." }
+          "PRISM_BUILD_VERSION=$version" >> $env:GITHUB_ENV
+          "### PRISM Windows test build $version" >> $env:GITHUB_STEP_SUMMARY
+          "Download PRISM-Windows-Installer after all checks pass. ASIO is disabled; native project playback is not yet integrated." >> $env:GITHUB_STEP_SUMMARY
+
       - name: Typecheck PRISM
         run: pnpm --filter @workspace/prism-desktop run typecheck
 
@@ -49,6 +63,20 @@ jobs:
           pnpm --filter @workspace/prism-desktop exec tsx scripts/test-native-vst.ts "$hostExe" "$plugin"
           if ($LASTEXITCODE -ne 0) { throw "Real native instrument/effect processing failed." }
 
+      - name: Build and check native audio device host (WASAPI; ASIO disabled)
+        shell: pwsh
+        run: |
+          cmake -S artifacts/prism-desktop/native/audio-host -B generated-artifacts/prism-audio-host-build -A x64 -DPRISM_ENABLE_ASIO=OFF
+          if ($LASTEXITCODE -ne 0) { throw "Native audio configure failed." }
+          cmake --build generated-artifacts/prism-audio-host-build --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "Native audio compilation failed." }
+          ctest --test-dir generated-artifacts/prism-audio-host-build -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw "Native audio core checks failed." }
+          Copy-Item generated-artifacts/prism-audio-host-build/Release/prism-audio-host.exe generated-artifacts/prism-native-runtime/
+          Copy-Item generated-artifacts/prism-audio-host-build/notices/*.txt generated-artifacts/prism-native-runtime/notices/
+          pnpm --filter @workspace/prism-desktop exec tsx scripts/test-native-audio-host.ts "$PWD/generated-artifacts/prism-native-runtime/prism-audio-host.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Real native audio host protocol checks failed." }
+
       - name: Run PRISM audio and persistence tests
         run: pnpm --filter @workspace/prism-desktop run test
 
@@ -59,6 +87,9 @@ jobs:
           pnpm --filter @workspace/prism-desktop run test:instruments
           pnpm --filter @workspace/prism-desktop run test:tempo
           pnpm --filter @workspace/prism-desktop exec tsx --test src/shared/native-plugins.test.ts
+          pnpm --filter @workspace/prism-desktop exec tsx --test src/renderer/workspace-layout.test.ts
+          pnpm --filter @workspace/prism-desktop exec tsx --test src/main/workspace-smoke-data.test.ts
+          pnpm --filter @workspace/prism-desktop exec tsx --test src/shared/native-audio.test.ts
 
       - name: Check audio rendering, effects, and transport
         shell: pwsh

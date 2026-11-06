@@ -23,6 +23,7 @@ import {
 } from "node:fs/promises";
 import { createReadStream, createWriteStream, mkdirSync } from "node:fs";
 import { basename, extname, isAbsolute, join } from "node:path";
+import { NativeAudioManager } from "./native-audio";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { Transform } from "node:stream";
@@ -450,6 +451,7 @@ function allowedSender(senderId: number): void {
 let themeStore: ThemeStore;
 
 function registerIpcHandlers(): void {
+  const nativeAudio = new NativeAudioManager(app.getPath("userData"));
   const nativePlugins = new NativePluginHost(app.getPath("userData"),
     app.isPackaged ? join(process.resourcesPath, "native", "prism-vst-host.exe")
       : join(__dirname, "../../../../generated-artifacts/prism-native-build/Release/prism-vst-host.exe"),
@@ -467,6 +469,16 @@ function registerIpcHandlers(): void {
     });
   };
 
+  const requireStoppedRecording = () => {
+    if (activeRecordings.size) throw new Error("Finish recording before changing or testing native audio devices.");
+  };
+  handle("prism:native-audio:status", (_event, refresh) => { if (refresh === true) requireStoppedRecording(); return nativeAudio.status(refresh === true); });
+  handle("prism:native-audio:probe", (_event, configuration) => nativeAudio.probe(configuration));
+  handle("prism:native-audio:open", (_event, configuration) => { requireStoppedRecording(); return nativeAudio.open(configuration); });
+  handle("prism:native-audio:close", () => nativeAudio.close());
+  handle("prism:native-audio:test-tone", () => { requireStoppedRecording(); return nativeAudio.testTone(); });
+  handle("prism:native-audio:control-panel", (_event, deviceId) => { requireStoppedRecording(); return nativeAudio.controlPanel(deviceId); });
+  app.on("before-quit", () => nativeAudio.dispose());
   handle("prism:native:status", () => nativePlugins.status());
   handle("prism:native:add-folder", () => nativePlugins.addFolder());
   handle("prism:native:scan", () => nativePlugins.scan());

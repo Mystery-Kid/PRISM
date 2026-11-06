@@ -1,7 +1,8 @@
 export const STARRY_ID = "theme.starry";
 export const ORIGINAL_ID = "theme.original";
 export const DAY_ID = "theme.day";
-export const BUILT_IN_THEME_IDS: readonly string[] = [ORIGINAL_ID, DAY_ID];
+export const PRISM_ID = "theme.prism";
+export const BUILT_IN_THEME_IDS: readonly string[] = [ORIGINAL_ID, PRISM_ID, DAY_ID];
 
 export type ThemeState = {
   claimedThemeIds: string[];

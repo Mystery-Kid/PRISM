@@ -270,7 +270,7 @@ export type CreateSongInput = {
   title: string;
 };
 
-export type AppBridge = import("./native-plugins").NativePluginBridge & {
+export type AppBridge = import("./native-plugins").NativePluginBridge & import("./native-audio").NativeAudioBridge & {
   saveProjectAs(session: SongSession): Promise<string | null>;
   openProject(): Promise<{ release: Release; session: SongSession } | null>;
   getAppVersion(): Promise<string>;

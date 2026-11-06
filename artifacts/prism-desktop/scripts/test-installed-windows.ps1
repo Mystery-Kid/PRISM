@@ -10,7 +10,16 @@ $installation = Start-Process -FilePath $installer.FullName -ArgumentList "/S", 
 if ($installation.ExitCode -ne 0) { throw "Silent installation failed: $($installation.ExitCode)" }
 $exe = Join-Path $installDir "PRISM.exe"
 if (!(Test-Path $exe)) { throw "Installed PRISM.exe was not found." }
-foreach ($phase in @("first-launch", "reopen", "theme-reopen", "instruments-create", "instruments-reopen", "pedals-create", "pedals-reopen", "tempo-create", "tempo-reopen", "native-create", "native-reopen")) {
+if ($env:PRISM_BUILD_VERSION) {
+  $installedVersion = (Get-Item $exe).VersionInfo.ProductVersion
+  # Windows executable resources can append a zero revision to a SemVer version.
+  if ($installedVersion -ne $env:PRISM_BUILD_VERSION -and
+      $installedVersion -ne "$($env:PRISM_BUILD_VERSION).0") {
+    throw "Installed version '$installedVersion' does not match build '$env:PRISM_BUILD_VERSION'."
+  }
+  Write-Host "Verified installed PRISM version $installedVersion"
+}
+foreach ($phase in @("first-launch", "reopen", "theme-reopen", "instruments-create", "instruments-reopen", "pedals-create", "pedals-reopen", "tempo-create", "tempo-reopen", "native-create", "native-reopen", "workspace-create", "workspace-reopen")) {
   $arguments = @("--prism-smoke-test=$root")
   if ($phase -eq "reopen") { $arguments += "--prism-smoke-reopen" }
   if ($phase -eq "theme-reopen") { $arguments += "--prism-smoke-reopen", "--prism-theme-reopen" }
@@ -20,6 +29,7 @@ foreach ($phase in @("first-launch", "reopen", "theme-reopen", "instruments-crea
   if ($phase -eq "pedals-reopen") { $arguments += "--prism-pedal-reopen" }
   if ($phase -eq "tempo-create") { $arguments += "--prism-tempo-create" }
   if ($phase -eq "tempo-reopen") { $arguments += "--prism-tempo-reopen" }
+  if ($phase -eq "workspace-create" -or $phase -eq "workspace-reopen") { $arguments += "--prism-$phase" }
   if ($phase -eq "native-create" -or $phase -eq "native-reopen") {
     $source = Resolve-Path "generated-artifacts/prism-native-build/VST3/Release"
     $arguments += "--prism-$phase", "--prism-native-source=$source"
