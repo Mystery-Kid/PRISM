@@ -12,7 +12,9 @@ $exe = Join-Path $installDir "PRISM.exe"
 if (!(Test-Path $exe)) { throw "Installed PRISM.exe was not found." }
 if ($env:PRISM_BUILD_VERSION) {
   $installedVersion = (Get-Item $exe).VersionInfo.ProductVersion
-  if ($installedVersion -ne $env:PRISM_BUILD_VERSION) {
+  # Windows executable resources can append a zero revision to a SemVer version.
+  if ($installedVersion -ne $env:PRISM_BUILD_VERSION -and
+      $installedVersion -ne "$($env:PRISM_BUILD_VERSION).0") {
     throw "Installed version '$installedVersion' does not match build '$env:PRISM_BUILD_VERSION'."
   }
   Write-Host "Verified installed PRISM version $installedVersion"
