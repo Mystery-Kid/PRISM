@@ -10,6 +10,13 @@ $installation = Start-Process -FilePath $installer.FullName -ArgumentList "/S", 
 if ($installation.ExitCode -ne 0) { throw "Silent installation failed: $($installation.ExitCode)" }
 $exe = Join-Path $installDir "PRISM.exe"
 if (!(Test-Path $exe)) { throw "Installed PRISM.exe was not found." }
+if ($env:PRISM_BUILD_VERSION) {
+  $installedVersion = (Get-Item $exe).VersionInfo.ProductVersion
+  if ($installedVersion -ne $env:PRISM_BUILD_VERSION) {
+    throw "Installed version '$installedVersion' does not match build '$env:PRISM_BUILD_VERSION'."
+  }
+  Write-Host "Verified installed PRISM version $installedVersion"
+}
 foreach ($phase in @("first-launch", "reopen", "theme-reopen", "instruments-create", "instruments-reopen", "pedals-create", "pedals-reopen", "tempo-create", "tempo-reopen", "native-create", "native-reopen", "workspace-create", "workspace-reopen")) {
   $arguments = @("--prism-smoke-test=$root")
   if ($phase -eq "reopen") { $arguments += "--prism-smoke-reopen" }

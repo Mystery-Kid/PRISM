@@ -30,6 +30,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --filter @workspace/prism-desktop...
 
+      - name: Stamp increasing Windows test-build version
+        shell: pwsh
+        run: |
+          $packagePath = "artifacts/prism-desktop/package.json"
+          $package = Get-Content $packagePath -Raw | ConvertFrom-Json
+          $parts = $package.version.Split(".")
+          $version = "$($parts[0]).$($parts[1]).$env:GITHUB_RUN_NUMBER"
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid Windows build version: $version" }
+          node -e "const fs=require('node:fs');const p=process.argv[1];const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version=process.argv[2];fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')" $packagePath $version
+          if ($LASTEXITCODE -ne 0) { throw "Could not stamp the package version." }
+          "PRISM_BUILD_VERSION=$version" >> $env:GITHUB_ENV
+          "### PRISM Windows test build $version" >> $env:GITHUB_STEP_SUMMARY
+          "Download PRISM-Windows-Installer after all checks pass. ASIO is disabled; native project playback is not yet integrated." >> $env:GITHUB_STEP_SUMMARY
+
       - name: Typecheck PRISM
         run: pnpm --filter @workspace/prism-desktop run typecheck
 
